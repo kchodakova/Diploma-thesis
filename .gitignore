@@ -216,3 +216,40 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# =========================
+# Thesis data - do not upload
+# =========================
+data/
+dataset/
+datasets/
+raw_data/
+processed_data/
+private_data/
+external_data/
+
+# =========================
+# Generated results / outputs
+# =========================
+results/
+outputs/
+output/
+logs/
+
+# =========================
+# Models / checkpoints
+# =========================
+models/
+checkpoints/
+*.pkl
+*.joblib
+*.pt
+*.pth
+*.h5
+*.sav
+
+# =========================
+# Local config / secrets
+# =========================
+config.local.*
+secrets.*
+credentials.*
