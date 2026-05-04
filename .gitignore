@@ -253,3 +253,10 @@ checkpoints/
 config.local.*
 secrets.*
 credentials.*
+
+# Data files
+*.csv
+*.xlsx
+*.xls
+*.parquet
+*.json
