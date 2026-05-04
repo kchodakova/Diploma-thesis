@@ -1,0 +1,4127 @@
+# 1) NAČÍTANIE DÁT
+# =========================
+# sep=None + engine='python' skúsi automaticky rozpoznať delimiter
+df = pd.read_csv(FILE_PATH, sep=None, engine="python", encoding="utf-8")
+
+# Očistenie názvov stĺpcov
+df.columns = df.columns.str.strip()
+
+# Konverzia typov
+numeric_cols = ["quantity", "unit_price", "line_total"]
+for col in numeric_cols:
+    df[col] = pd.to_numeric(df[col], errors="coerce")
+
+df["transaction_date"] = pd.to_datetime(df["transaction_date"], errors="coerce")
+
+# Voliteľne odstránenie riadkov s chýbajúcim order_id alebo line_total
+df = df.dropna(subset=["order_id", "line_total"])
+
+
+# =========================
+# 2) AVERAGE ORDER VALUE
+#    suma line_total podľa order_id
+# =========================
+order_value = (
+    df.groupby("order_id", as_index=False)["line_total"]
+      .sum()
+      .rename(columns={"line_total": "order_value"})
+)
+
+average_order_value = order_value["order_value"].mean()
+
+
+# =========================
+# 3) AVERAGE ORDER SIZE
+#    suma quantity podľa order_id
+# =========================
+order_size = (
+    df.groupby("order_id", as_index=False)["quantity"]
+      .sum()
+      .rename(columns={"quantity": "order_size"})
+)
+
+average_order_size = order_size["order_size"].mean()
+
+
+# =========================
+# 4) PERCENTUÁLNE ZASTÚPENIE JEDNOTLIVÝCH PRODUKTOV
+# =========================
+product_representation = (
+    df.groupby(PRODUCT_COLUMN, as_index=False)[PRODUCT_SHARE_BASE]
+      .sum()
+      .rename(columns={PRODUCT_SHARE_BASE: "base_value"})
+)
+
+total_base = product_representation["base_value"].sum()
+
+product_representation["percentage_share"] = (
+    product_representation["base_value"] / total_base * 100
+)
+
+product_representation = product_representation.sort_values(
+    by="percentage_share", ascending=False
+)
+
+
+# =========================
+# 5) CELKOVÉ ROČNÉ SUMY line_total
+# =========================
+df["year"] = df["transaction_date"].dt.year
+
+yearly_totals = (
+    df.groupby("year", as_index=False)["line_total"]
+      .sum()
+      .rename(columns={"line_total": "yearly_line_total"})
+      .sort_values("year")
+)
+
+
+# =========================
+# 6) TOP 20 RIADKOV S NAJVYŠŠOU line_total
+# =========================
+top_20_rows_highest_line_total = df.nlargest(20, "line_total")
+
+
+# =========================
+# 7) TOP 10 OBJEDNÁVOK S NAJVYŠŠOU SUMOU line_total
+# =========================
+top_10_orders_highest_total = (
+    df.groupby("order_id", as_index=False)["line_total"]
+      .sum()
+      .rename(columns={"line_total": "order_total"})
+      .sort_values(by="order_total", ascending=False)
+      .head(10)
+)
+
+
+# =========================
+# 8) TOP 5 RIADKOV S NAJMENŠOU line_total
+# =========================
+top_5_rows_smallest_line_total = df.nsmallest(5, "line_total")
+
+
+# =========================
+# 9) VÝPIS VÝSLEDKOV
+# =========================
+print("=" * 60)
+print(f"1. Average Order Value (AOV): {average_order_value:,.2f}")
+print(f"2. Average Order Size: {average_order_size:,.2f}")
+print("=" * 60)
+
+print("\n3. Percentuálne zastúpenie jednotlivých produktov:")
+print(product_representation.head(20).to_string(index=False))
+
+print("\n4. Celkové ročné sumy line_total:")
+print(yearly_totals.to_string(index=False))
+
+print("\n5. Top 20 riadkov s najvyššou line_total:")
+print(top_20_rows_highest_line_total.to_string(index=False))
+
+print("\n6. Top 10 objednávok s najvyššou SUMOU line_total:")
+print(top_10_orders_highest_total.to_string(index=False))
+
+print("\n7. Top 5 riadkov s najmenšou line_total:")
+print(top_5_rows_smallest_line_total.to_string(index=False))
+
+
+# =========================
+# 10) ULOŽENIE DO CSV
+# =========================
+order_value.to_csv("order_value_by_order.csv", index=False)
+order_size.to_csv("order_size_by_order.csv", index=False)
+product_representation.to_csv("product_representation.csv", index=False)
+yearly_totals.to_csv("yearly_totals.csv", index=False)
+top_20_rows_highest_line_total.to_csv("top_20_rows_highest_line_total.csv", index=False)
+top_10_orders_highest_total.to_csv("top_10_orders_highest_total.csv", index=False)
+top_5_rows_smallest_line_total.to_csv("top_5_rows_smallest_line_total.csv", index=False)
+
+print("hotovo")
+
+import pandas as pd
+
+FILE_PATH = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\dedoles_sk_2022_2024_order_lines_without_b2b_enriched.csv"
+CHUNK_SIZE = 500_000
+
+
+
+total_rows = 0
+invalid_dates = 0
+invalid_samples = []
+
+for chunk in pd.read_csv(FILE_PATH, usecols=["transaction_date"], chunksize=CHUNK_SIZE):
+    total_rows += len(chunk)
+
+    parsed = pd.to_datetime(chunk["transaction_date"], dayfirst=True, errors="coerce")
+    invalid_mask = parsed.isna()
+
+    invalid_dates += invalid_mask.sum()
+
+    if len(invalid_samples) < 20:
+        samples = chunk.loc[invalid_mask, "transaction_date"].drop_duplicates().tolist()
+        invalid_samples.extend(samples)
+        invalid_samples = invalid_samples[:20]
+
+print("Počet riadkov:", total_rows)
+print("Počet nevalidných dátumov po parsovaní:", invalid_dates)
+print("Ukážka nevalidných hodnôt:")
+for x in invalid_samples:
+    print(x)
+'''
+RFM analyza
+
+''' 
+
+import pandas as pd
+from pathlib import Path
+import csv
+import gc
+import time
+
+rfm analyza cela
+
+# =========================================================
+# KONFIGURÁCIA
+# =========================================================
+FILE_PATH = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\training_period_2022_2023.csv"
+OUTPUT_PATH = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\rfm_customers_optimized.csv"
+
+ENCODING = "utf-8"
+SEP = None                  # napr. "," alebo ";" ; ak nevieš, nechaj None
+DECIMAL = "."               # zmeň na "," ak máš čísla typu 12,50
+DATE_FORMAT = None          # napr. "%Y-%m-%d" alebo "%d.%m.%Y"; ak nevieš, nechaj None
+
+CHUNKSIZE = 1_000_000
+PARTIAL_MERGE_EVERY = 5
+EXCLUDE_NON_POSITIVE_LINE_TOTAL = False
+
+# =========================================================
+# POMOCNÉ FUNKCIE
+# =========================================================
+def detect_separator(file_path, encoding="utf-8"):
+    with open(file_path, "r", encoding=encoding, newline="") as f:
+        sample = f.read(20000)
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+        return dialect.delimiter
+    except Exception:
+        return ","
+
+def clean_line_total(series, decimal="."):
+    s = series.astype("string").str.strip()
+    s = s.str.replace("\xa0", "", regex=False)
+    s = s.str.replace(" ", "", regex=False)
+
+    if decimal == ",":
+        s = s.str.replace(".", "", regex=False)
+        s = s.str.replace(",", ".", regex=False)
+    else:
+        s = s.str.replace(",", "", regex=False)
+
+    return pd.to_numeric(s, errors="coerce")
+
+def parse_dates(series, date_format=None):
+    if date_format:
+        return pd.to_datetime(series, format=date_format, errors="coerce")
+    return pd.to_datetime(series, errors="coerce")
+
+def consolidate_order_partials(partials):
+    if not partials:
+        return []
+
+    df = pd.concat(partials, ignore_index=True)
+
+    df = (
+        df.groupby(["customer_id", "order_id"], as_index=False, sort=False)
+          .agg(
+              transaction_date=("transaction_date", "max"),
+              line_total=("line_total", "sum")
+          )
+    )
+
+    return [df]
+
+def qcut_score(series, reverse=False):
+    ranked = series.rank(method="first")
+    if reverse:
+        return pd.qcut(ranked, 5, labels=[5, 4, 3, 2, 1]).astype("int8")
+    return pd.qcut(ranked, 5, labels=[1, 2, 3, 4, 5]).astype("int8")
+
+def assign_segment(row):
+    r = row["R_score"]
+    f = row["F_score"]
+    m = row["M_score"]
+
+    if r >= 4 and f >= 4 and m >= 4:
+        return "Champions"
+    elif r >= 3 and f >= 4 and m >= 3:
+        return "Loyal Customers"
+    elif r == 5 and f == 1:
+        return "Recent Customers"
+    elif r >= 4 and f <= 2:
+        return "New Customers"
+    elif r >= 3 and f >= 2 and m >= 2:
+        return "Potential Loyalists"
+    elif r <= 2 and f >= 4 and m >= 3:
+        return "At Risk"
+    elif r <= 2 and f <= 2 and m >= 3:
+        return "Cannot Lose Them"
+    elif r <= 2 and f <= 2 and m <= 2:
+        return "Hibernating"
+    else:
+        return "Others"
+
+# =========================================================
+# HLAVNÝ KÓD
+# =========================================================
+start_time = time.time()
+
+if SEP is None:
+    SEP = detect_separator(FILE_PATH, encoding=ENCODING)
+
+print(f"Použitý separator: {repr(SEP)}")
+
+usecols = ["customer_id", "order_id", "line_total", "transaction_date"]
+
+dtype_map = {
+    "customer_id": "string",
+    "order_id": "string",
+    "line_total": "string",
+    "transaction_date": "string"
+}
+
+order_partials = []
+chunk_counter = 0
+raw_rows_processed = 0
+total_failed_dates = 0
+failed_date_examples = set()
+
+reader = pd.read_csv(
+    FILE_PATH,
+    sep=SEP,
+    usecols=usecols,
+    dtype=dtype_map,
+    chunksize=CHUNKSIZE,
+    encoding=ENCODING,
+    low_memory=True
+)
+
+for chunk in reader:
+    chunk_counter += 1
+    raw_rows_processed += len(chunk)
+
+    raw_dates = chunk["transaction_date"].copy()
+    parsed_dates = parse_dates(raw_dates, date_format=DATE_FORMAT)
+
+    failed_mask = raw_dates.notna() & parsed_dates.isna()
+    failed_count = int(failed_mask.sum())
+    total_failed_dates += failed_count
+
+    if failed_count > 0 and len(failed_date_examples) < 20:
+        examples = raw_dates[failed_mask].drop_duplicates().head(20).tolist()
+        failed_date_examples.update(examples)
+
+    chunk["transaction_date"] = parsed_dates
+    chunk["line_total"] = clean_line_total(chunk["line_total"], decimal=DECIMAL)
+
+    chunk = chunk.dropna(subset=["customer_id", "order_id", "transaction_date", "line_total"])
+
+    if EXCLUDE_NON_POSITIVE_LINE_TOTAL:
+        chunk = chunk[chunk["line_total"] > 0]
+
+    order_chunk = (
+        chunk.groupby(["customer_id", "order_id"], as_index=False, sort=False)
+             .agg(
+                 transaction_date=("transaction_date", "max"),
+                 line_total=("line_total", "sum")
+             )
+    )
+
+    order_partials.append(order_chunk)
+
+    if len(order_partials) >= PARTIAL_MERGE_EVERY:
+        order_partials = consolidate_order_partials(order_partials)
+
+    del chunk, order_chunk, raw_dates, parsed_dates, failed_mask
+    gc.collect()
+
+    print(f"Chunk {chunk_counter} spracovaný | raw rows: {raw_rows_processed:,}")
+
+order_partials = consolidate_order_partials(order_partials)
+orders = order_partials[0]
+
+print(f"\nPočet order-level riadkov po redukcii: {len(orders):,}")
+
+snapshot_date = orders["transaction_date"].max() + pd.Timedelta(days=1)
+
+rfm = (
+    orders.groupby("customer_id", as_index=False, sort=False)
+          .agg(
+              Recency=("transaction_date", lambda x: (snapshot_date - x.max()).days),
+              Frequency=("order_id", "count"),
+              Monetary=("line_total", "sum")
+          )
+)
+
+rfm["R_score"] = qcut_score(rfm["Recency"], reverse=True)
+rfm["F_score"] = qcut_score(rfm["Frequency"], reverse=False)
+rfm["M_score"] = qcut_score(rfm["Monetary"], reverse=False)
+
+rfm["RFM_score"] = (
+    rfm["R_score"].astype(str) +
+    rfm["F_score"].astype(str) +
+    rfm["M_score"].astype(str)
+)
+
+rfm["RFM_sum"] = (
+    rfm["R_score"].astype("int16") +
+    rfm["F_score"].astype("int16") +
+    rfm["M_score"].astype("int16")
+)
+
+rfm["Segment"] = rfm.apply(assign_segment, axis=1)
+
+rfm.to_csv(OUTPUT_PATH, index=False, encoding="utf-8-sig")
+
+elapsed = time.time() - start_time
+
+print("\n==============================")
+print("HOTOVO")
+print("==============================")
+print(f"Spracovaných raw riadkov: {raw_rows_processed:,}")
+print(f"Počet order-level riadkov: {len(orders):,}")
+print(f"Počet zákazníkov v RFM: {len(rfm):,}")
+print(f"Nepodarilo sa parse-núť dátumov: {total_failed_dates:,}")
+
+if total_failed_dates > 0:
+    print("Ukážka problematických dátumov:")
+    for x in list(failed_date_examples)[:20]:
+        print(x)
+
+print(f"Min transaction_date: {orders['transaction_date'].min()}")
+print(f"Max transaction_date: {orders['transaction_date'].max()}")
+print(f"Výstup uložený do: {OUTPUT_PATH}")
+print(f"Trvanie: {elapsed:.2f} sekúnd")
+
+print("\nUkážka výsledku:")
+print(rfm.head())
+
+print("\nPočet zákazníkov podľa segmentu:")
+print(rfm["Segment"].value_counts())
+print("hotovo")
+
+import pandas as pd
+import csv
+
+RAW_FILE = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\training_period_2022_2023.csv"
+RFM_FILE = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\rfm_customers_optimized.csv"
+
+ENCODING = "utf-8"
+SEP = None
+DECIMAL = "."
+DATE_FORMAT = None
+CHUNKSIZE = 1_000_000
+SAMPLE_SIZE = 20
+
+def detect_separator(file_path, encoding="utf-8"):
+    with open(file_path, "r", encoding=encoding, newline="") as f:
+        sample = f.read(20000)
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+        return dialect.delimiter
+    except Exception:
+        return ","
+
+def clean_line_total(series, decimal="."):
+    s = series.astype("string").str.strip()
+    s = s.str.replace("\xa0", "", regex=False)
+    s = s.str.replace(" ", "", regex=False)
+
+    if decimal == ",":
+        s = s.str.replace(".", "", regex=False)
+        s = s.str.replace(",", ".", regex=False)
+    else:
+        s = s.str.replace(",", "", regex=False)
+
+    return pd.to_numeric(s, errors="coerce")
+
+def parse_dates(series, date_format=None):
+    if date_format:
+        return pd.to_datetime(series, format=date_format, errors="coerce")
+    return pd.to_datetime(series, errors="coerce")
+
+if SEP is None:
+    SEP = detect_separator(RAW_FILE, encoding=ENCODING)
+
+rfm = pd.read_csv(RFM_FILE, dtype={"customer_id": "string"})
+
+sample_customers = rfm["customer_id"].dropna().sample(SAMPLE_SIZE, random_state=42).tolist()
+sample_set = set(sample_customers)
+
+parts = []
+
+reader = pd.read_csv(
+    RAW_FILE,
+    sep=SEP,
+    usecols=["customer_id", "order_id", "line_total", "transaction_date"],
+    dtype={
+        "customer_id": "string",
+        "order_id": "string",
+        "line_total": "string",
+        "transaction_date": "string"
+    },
+    chunksize=CHUNKSIZE,
+    encoding=ENCODING,
+    low_memory=True
+)
+
+for chunk in reader:
+    chunk = chunk[chunk["customer_id"].isin(sample_set)].copy()
+    if chunk.empty:
+        continue
+
+    chunk["transaction_date"] = parse_dates(chunk["transaction_date"], DATE_FORMAT)
+    chunk["line_total"] = clean_line_total(chunk["line_total"], DECIMAL)
+    chunk = chunk.dropna(subset=["customer_id", "order_id", "transaction_date", "line_total"])
+
+    parts.append(chunk)
+
+raw_sample = pd.concat(parts, ignore_index=True)
+
+order_level = (
+    raw_sample.groupby(["customer_id", "order_id"], as_index=False)
+    .agg(
+        transaction_date=("transaction_date", "max"),
+        line_total=("line_total", "sum")
+    )
+)
+
+global_max_date = parse_dates(
+    pd.read_csv(
+        RAW_FILE,
+        sep=SEP,
+        usecols=["transaction_date"],
+        dtype={"transaction_date": "string"},
+        encoding=ENCODING
+    )["transaction_date"],
+    DATE_FORMAT
+).max()
+
+snapshot_date = global_max_date + pd.Timedelta(days=1)
+
+check = (
+    order_level.groupby("customer_id", as_index=False)
+    .agg(
+        Recency=("transaction_date", lambda x: (snapshot_date - x.max()).days),
+        Frequency=("order_id", "count"),
+        Monetary=("line_total", "sum")
+    )
+)
+
+rfm_check = rfm[rfm["customer_id"].isin(sample_set)][["customer_id", "Recency", "Frequency", "Monetary"]].copy()
+rfm_check["Monetary"] = pd.to_numeric(rfm_check["Monetary"], errors="coerce")
+
+comparison = check.merge(rfm_check, on="customer_id", suffixes=("_raw", "_rfm"))
+
+comparison["Recency_ok"] = comparison["Recency_raw"] == comparison["Recency_rfm"]
+comparison["Frequency_ok"] = comparison["Frequency_raw"] == comparison["Frequency_rfm"]
+comparison["Monetary_ok"] = comparison["Monetary_raw"].round(2) == comparison["Monetary_rfm"].round(2)
+
+comparison["ALL_OK"] = (
+    comparison["Recency_ok"] &
+    comparison["Frequency_ok"] &
+    comparison["Monetary_ok"]
+)
+
+print(comparison[[
+    "customer_id",
+    "Recency_raw", "Recency_rfm", "Recency_ok",
+    "Frequency_raw", "Frequency_rfm", "Frequency_ok",
+    "Monetary_raw", "Monetary_rfm", "Monetary_ok",
+    "ALL_OK"
+]])
+
+print("\nPočet úplne správnych zákazníkov vo vzorke:", comparison["ALL_OK"].sum(), "z", len(comparison))
+print("hotovo")
+'''
+
+import pandas as pd
+
+rfm_file = "C:/Users/kajka/Documents/Diplomka/Dáta/Used data/rfm_customers_optimized.csv"
+output_file = "C:/Users/kajka/Documents/Diplomka/Dáta/Used data/rfm_segment_profile.csv"
+
+rfm = pd.read_csv(rfm_file)
+
+segment_profile = (
+    rfm.groupby("Segment", as_index=False)
+       .agg(
+           Customers=("customer_id", "count"),
+           Avg_Recency=("Recency", "mean"),
+           Avg_Frequency=("Frequency", "mean"),
+           Avg_Monetary=("Monetary", "mean"),
+           Total_Monetary=("Monetary", "sum")
+       )
+)
+
+segment_profile["Customer_share_pct"] = (
+    segment_profile["Customers"] / segment_profile["Customers"].sum() * 100
+).round(2)
+
+segment_profile["Revenue_share_pct"] = (
+    segment_profile["Total_Monetary"] / segment_profile["Total_Monetary"].sum() * 100
+).round(2)
+
+segment_profile = segment_profile.sort_values("Total_Monetary", ascending=False)
+
+print(segment_profile)
+
+segment_profile.to_csv(
+    output_file,
+    index=False,
+    encoding="utf-8-sig"
+)
+
+print("hotovo")
+
+import pandas as pd
+import csv
+import gc
+import time
+
+# =========================================================
+# KONFIGURÁCIA
+# =========================================================
+FILE_PATH = "C:/Users/kajka/Documents/Diplomka/Dáta/Used data/training_period_2022_2023.csv"
+OUTPUT_PATH = "C:/Users/kajka/Documents/Diplomka/Dáta/Used data/rfm_customers_final.csv"
+
+ENCODING = "utf-8"
+SEP = None
+DECIMAL = "."
+DATE_FORMAT = None
+
+CHUNKSIZE = 1_000_000
+PARTIAL_MERGE_EVERY = 5
+
+EXCLUDE_NON_POSITIVE_LINE_TOTAL = False
+
+# =========================================================
+# POMOCNÉ FUNKCIE
+# =========================================================
+def detect_separator(file_path, encoding="utf-8"):
+    with open(file_path, "r", encoding=encoding, newline="") as f:
+        sample = f.read(20000)
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+        return dialect.delimiter
+    except Exception:
+        return ","
+
+def clean_line_total(series, decimal="."):
+    s = series.astype("string").str.strip()
+    s = s.str.replace("\xa0", "", regex=False)
+    s = s.str.replace(" ", "", regex=False)
+
+    if decimal == ",":
+        s = s.str.replace(".", "", regex=False)
+        s = s.str.replace(",", ".", regex=False)
+    else:
+        s = s.str.replace(",", "", regex=False)
+
+    return pd.to_numeric(s, errors="coerce")
+
+def parse_dates(series, date_format=None):
+    if date_format:
+        return pd.to_datetime(series, format=date_format, errors="coerce")
+    return pd.to_datetime(series, errors="coerce")
+
+def consolidate_order_partials(partials):
+    if not partials:
+        return []
+
+    df = pd.concat(partials, ignore_index=True)
+
+    df = (
+        df.groupby(["customer_id", "order_id"], as_index=False, sort=False)
+          .agg(
+              transaction_date=("transaction_date", "max"),
+              line_total=("line_total", "sum")
+          )
+    )
+
+    return [df]
+
+def qcut_score_recency(series):
+    ranked = series.rank(method="first", ascending=True)
+    return pd.qcut(ranked, 5, labels=[5, 4, 3, 2, 1]).astype("int8")
+
+def qcut_score_positive(series):
+    ranked = series.rank(method="first", ascending=True)
+    return pd.qcut(ranked, 5, labels=[1, 2, 3, 4, 5]).astype("int8")
+
+def normalize_rank_0_100(series, ascending):
+    ranks = series.rank(method="first", ascending=ascending)
+    return ((ranks / ranks.max()) * 100).round(2)
+
+def assign_segment(rfm_combined):
+    if rfm_combined >= 13:
+        return "Champions"
+    elif 10 <= rfm_combined <= 12:
+        return "Loyal Customers"
+    elif 7 <= rfm_combined <= 9:
+        return "Potential Loyalists"
+    elif 5 <= rfm_combined <= 6:
+        return "Promising"
+    elif rfm_combined == 4:
+        return "At Risk"
+    else:
+        return "Hibernating"
+
+# =========================================================
+# HLAVNÝ KÓD
+# =========================================================
+start_time = time.time()
+
+if SEP is None:
+    SEP = detect_separator(FILE_PATH, encoding=ENCODING)
+
+print(f"Použitý separator: {repr(SEP)}")
+
+usecols = ["customer_id", "order_id", "line_total", "transaction_date"]
+
+dtype_map = {
+    "customer_id": "string",
+    "order_id": "string",
+    "line_total": "string",
+    "transaction_date": "string"
+}
+
+order_partials = []
+chunk_counter = 0
+raw_rows_processed = 0
+total_failed_dates = 0
+
+reader = pd.read_csv(
+    FILE_PATH,
+    sep=SEP,
+    usecols=usecols,
+    dtype=dtype_map,
+    chunksize=CHUNKSIZE,
+    encoding=ENCODING,
+    low_memory=True
+)
+
+for chunk in reader:
+    chunk_counter += 1
+    raw_rows_processed += len(chunk)
+
+    raw_dates = chunk["transaction_date"].copy()
+    parsed_dates = parse_dates(raw_dates, date_format=DATE_FORMAT)
+
+    failed_mask = raw_dates.notna() & parsed_dates.isna()
+    total_failed_dates += int(failed_mask.sum())
+
+    chunk["transaction_date"] = parsed_dates
+    chunk["line_total"] = clean_line_total(chunk["line_total"], decimal=DECIMAL)
+
+    chunk = chunk.dropna(subset=["customer_id", "order_id", "transaction_date", "line_total"])
+
+    if EXCLUDE_NON_POSITIVE_LINE_TOTAL:
+        chunk = chunk[chunk["line_total"] > 0]
+
+    order_chunk = (
+        chunk.groupby(["customer_id", "order_id"], as_index=False, sort=False)
+             .agg(
+                 transaction_date=("transaction_date", "max"),
+                 line_total=("line_total", "sum")
+             )
+    )
+
+    order_partials.append(order_chunk)
+
+    if len(order_partials) >= PARTIAL_MERGE_EVERY:
+        order_partials = consolidate_order_partials(order_partials)
+
+    del chunk, order_chunk, raw_dates, parsed_dates, failed_mask
+    gc.collect()
+
+    print(f"Chunk {chunk_counter} spracovaný | raw rows: {raw_rows_processed:,}")
+
+order_partials = consolidate_order_partials(order_partials)
+orders = order_partials[0]
+
+cutoff_date = pd.to_datetime("2023-12-31") # Tu zadaj skutočný koniec tvojho trénovacieho okna
+snapshot_date = cutoff_date + pd.Timedelta(days=1)
+
+# Pre istotu vymažeme všetky chybné nákupy, ktoré sa udiali "v budúcnosti"
+orders = orders[orders["transaction_date"] <= cutoff_date]
+
+rfm = (
+    orders.groupby("customer_id", as_index=False, sort=False)
+          .agg(
+              Recency=("transaction_date", lambda x: (snapshot_date - x.max()).days),
+              Frequency=("order_id", "count"),
+              Monetary=("line_total", "sum")
+          )
+)
+
+# =========================================================
+# KVANTILOVÉ SKÓRE 1-5
+# =========================================================
+rfm["R_score"] = qcut_score_recency(rfm["Recency"])
+rfm["F_score"] = qcut_score_positive(rfm["Frequency"])
+rfm["M_score"] = qcut_score_positive(rfm["Monetary"])
+
+# =========================================================
+# NORMALIZÁCIA 0-100
+# Recency: zostupne
+# Frequency: vzostupne
+# Monetary: vzostupne
+# =========================================================
+rfm["R_rank_tmp"] = rfm["Recency"].rank(method="first", ascending=False)
+rfm["F_rank_tmp"] = rfm["Frequency"].rank(method="first", ascending=True)
+rfm["M_rank_tmp"] = rfm["Monetary"].rank(method="first", ascending=True)
+
+rfm["R_normalized"] = ((rfm["R_rank_tmp"] / rfm["R_rank_tmp"].max()) * 100).round(2)
+rfm["F_normalized"] = ((rfm["F_rank_tmp"] / rfm["F_rank_tmp"].max()) * 100).round(2)
+rfm["M_normalized"] = ((rfm["M_rank_tmp"] / rfm["M_rank_tmp"].max()) * 100).round(2)
+
+rfm = rfm.drop(columns=["R_rank_tmp", "F_rank_tmp", "M_rank_tmp"])
+
+# =========================================================
+# VÝSLEDNÉ SKÓRE
+# =========================================================
+rfm["RFM_Score"] = (
+    rfm["R_score"].astype(str) +
+    rfm["F_score"].astype(str) +
+    rfm["M_score"].astype(str)
+)
+
+rfm["RFM_Combined"] = (
+    rfm["R_score"].astype("int16") +
+    rfm["F_score"].astype("int16") +
+    rfm["M_score"].astype("int16")
+)
+
+# =========================================================
+# SEGMENTÁCIA
+# =========================================================
+rfm["Customer_Segment"] = rfm["RFM_Combined"].apply(assign_segment)
+
+# =========================================================
+# ULOŽENIE
+# =========================================================
+rfm.to_csv(OUTPUT_PATH, index=False, encoding="utf-8-sig")
+
+elapsed = time.time() - start_time
+
+print("\n==============================")
+print("HOTOVO")
+print("==============================")
+print(f"Spracovaných raw riadkov: {raw_rows_processed:,}")
+print(f"Počet order-level riadkov: {len(orders):,}")
+print(f"Počet zákazníkov v RFM: {len(rfm):,}")
+print(f"Nepodarilo sa parse-núť dátumov: {total_failed_dates:,}")
+print(f"Min transaction_date: {orders['transaction_date'].min()}")
+print(f"Max transaction_date: {orders['transaction_date'].max()}")
+print(f"Výstup uložený do: {OUTPUT_PATH}")
+print(f"Trvanie: {elapsed:.2f} sekúnd")
+
+print("\nUkážka výsledku:")
+print(rfm.head())
+
+print("\nPočet zákazníkov podľa segmentu:")
+print(rfm["Customer_Segment"].value_counts())
+print("hotofka")
+import pandas as pd
+
+file_path = "C:/Users/kajka/Documents/Diplomka/Dáta/Used data/rfm_customers_final.csv"
+output_path = "C:/Users/kajka/Documents/Diplomka/Dáta/Used data/rfm_segment_profile_final.csv"
+
+rfm = pd.read_csv(file_path)
+
+segment_profile = (
+    rfm.groupby("Customer_Segment", as_index=False)
+       .agg(
+           Customers=("customer_id", "count"),
+           Avg_Recency=("Recency", "mean"),
+           Avg_Frequency=("Frequency", "mean"),
+           Avg_Monetary=("Monetary", "mean"),
+           Total_Monetary=("Monetary", "sum")
+       )
+)
+
+segment_profile["Customer_share_pct"] = (
+    segment_profile["Customers"] / segment_profile["Customers"].sum() * 100
+).round(2)
+
+segment_profile["Revenue_share_pct"] = (
+    segment_profile["Total_Monetary"] / segment_profile["Total_Monetary"].sum() * 100
+).round(2)
+
+segment_profile = segment_profile.sort_values("Total_Monetary", ascending=False)
+
+print(segment_profile)
+
+segment_profile.to_csv(output_path, index=False, encoding="utf-8-sig")
+
+print("hotovo")
+
+import pandas as pd
+
+file_path = "C:/Users/kajka/Documents/Diplomka/Dáta/Used data/rfm_customers_final.csv"
+output_path = "C:/Users/kajka/Documents/Diplomka/Dáta/Used data/rfm_segment_profile_final.csv"
+
+rfm = pd.read_csv(file_path)
+
+segment_profile = (
+    rfm.groupby("Customer_Segment", as_index=False)
+       .agg(
+           Customers=("customer_id", "count"),
+           Avg_Recency=("Recency", "mean"),
+           Avg_Frequency=("Frequency", "mean"),
+           Avg_Monetary=("Monetary", "mean"),
+           Total_Monetary=("Monetary", "sum")
+       )
+)
+
+segment_profile["Customer_share_pct"] = (
+    segment_profile["Customers"] / segment_profile["Customers"].sum() * 100
+).round(2)
+
+segment_profile["Revenue_share_pct"] = (
+    segment_profile["Total_Monetary"] / segment_profile["Total_Monetary"].sum() * 100
+).round(2)
+
+segment_profile = segment_profile.sort_values("Total_Monetary", ascending=False)
+
+print(segment_profile)
+
+segment_profile.to_csv(output_path, index=False, encoding="utf-8-sig")
+
+print("hotovo")
+'''import pandas as pd
+from collections import defaultdict
+
+# =========================
+# 1. Cesty k súborom
+# =========================
+file_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\cleaned_dataset_2022-2024.csv"
+output_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\daily_sales_series_2022_2024.csv"
+
+# =========================
+# 2. Nastavenia
+# =========================
+start_date = pd.Timestamp("2022-01-01")
+end_date = pd.Timestamp("2024-12-31")
+chunksize = 1_000_000
+
+# =========================
+# 3. Slovník na priebežné sčítanie denných tržieb
+# =========================
+daily_totals = defaultdict(float)
+
+# =========================
+# 4. Načítanie CSV po častiach
+#    - správny separator je ","
+#    - načítajú sa len potrebné stĺpce
+# =========================
+reader = pd.read_csv(
+    file_path,
+    sep=",",
+    usecols=["transaction_date", "line_total"],
+    dtype={
+        "transaction_date": "string",
+        "line_total": "float64"
+    },
+    chunksize=chunksize,
+    engine="c",
+    encoding="utf-8-sig",
+    memory_map=True
+)
+
+# =========================
+# 5. Spracovanie každého chunku
+# =========================
+for i, chunk in enumerate(reader, start=1):
+    # prevod dátumu
+    chunk["transaction_date"] = pd.to_datetime(
+        chunk["transaction_date"],
+        format="%d/%m/%Y",
+        errors="coerce"
+    )
+
+    # istota, že line_total je numerický
+    chunk["line_total"] = pd.to_numeric(chunk["line_total"], errors="coerce")
+
+    # odstránenie neplatných hodnôt
+    chunk = chunk.dropna(subset=["transaction_date", "line_total"])
+
+    # filtrovanie len na požadované obdobie
+    chunk = chunk[
+        (chunk["transaction_date"] >= start_date) &
+        (chunk["transaction_date"] <= end_date)
+    ]
+
+    # agregácia tržieb na úroveň dňa
+    partial = chunk.groupby("transaction_date", sort=False)["line_total"].sum()
+
+    # priebežné sčítanie do slovníka
+    for dt, total in partial.items():
+        daily_totals[dt] += float(total)
+
+    print(f"Spracovaný chunk {i}")
+
+# =========================
+# 6. Vytvorenie kompletného denného radu
+#    - aj dni bez predaja budú mať 0
+# =========================
+full_range = pd.date_range(start=start_date, end=end_date, freq="D")
+
+daily_sales = (
+    pd.Series(daily_totals, name="daily_sales")
+    .reindex(full_range, fill_value=0.0)
+    .rename_axis("transaction_date")
+    .reset_index()
+)
+
+# voliteľné zaokrúhlenie
+daily_sales["daily_sales"] = daily_sales["daily_sales"].round(2)
+
+# =========================
+# 7. Kontrola výsledku
+# =========================
+print("\nUkážka výsledku:")
+print(daily_sales.head())
+print(daily_sales.tail())
+print(f"\nPočet dní vo výsledku: {len(daily_sales)}")
+
+# =========================
+# 8. Uloženie do CSV
+# =========================
+daily_sales.to_csv(output_path, index=False, encoding="utf-8-sig")
+
+print(f"\nHotovo. Výstup uložený do:\n{output_path}")
+
+import pandas as pd
+from collections import defaultdict
+
+# =========================
+# 1. Cesty k súborom
+# =========================
+file_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\cleaned_dataset_2022-2024.csv"
+output_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\daily_sales_series_2022_2024.csv"
+
+# =========================
+# 2. Nastavenia
+# =========================
+start_date = pd.Timestamp("2022-01-01")
+end_date = pd.Timestamp("2024-12-31")
+chunksize = 1_000_000
+
+# =========================
+# 3. Priebežné sčítanie denných tržieb
+# =========================
+daily_totals = defaultdict(float)
+
+# =========================
+# 4. Načítanie CSV po chunkoch
+# =========================
+reader = pd.read_csv(
+    file_path,
+    sep=",",
+    usecols=["transaction_date", "line_total"],
+    dtype={
+        "transaction_date": "string",
+        "line_total": "float64"
+    },
+    chunksize=chunksize,
+    engine="c",
+    encoding="utf-8-sig",
+    memory_map=True
+)
+
+# =========================
+# 5. Spracovanie chunkov
+# =========================
+for i, chunk in enumerate(reader, start=1):
+    chunk["transaction_date"] = pd.to_datetime(
+        chunk["transaction_date"],
+        format="%Y-%m-%d",
+        errors="coerce"
+    )
+
+    chunk["line_total"] = pd.to_numeric(chunk["line_total"], errors="coerce")
+
+    chunk = chunk.dropna(subset=["transaction_date", "line_total"])
+
+    chunk = chunk[
+        (chunk["transaction_date"] >= start_date) &
+        (chunk["transaction_date"] <= end_date)
+    ]
+
+    partial = chunk.groupby("transaction_date", sort=False)["line_total"].sum()
+
+    for dt, total in partial.items():
+        daily_totals[dt] += float(total)
+
+    print(f"Spracovaný chunk {i}")
+
+# =========================
+# 6. Kompletný denný rad
+# =========================
+full_range = pd.date_range(start=start_date, end=end_date, freq="D")
+
+daily_sales = (
+    pd.Series(daily_totals, name="daily_sales")
+    .reindex(full_range, fill_value=0.0)
+    .rename_axis("transaction_date")
+    .reset_index()
+)
+
+daily_sales["daily_sales"] = daily_sales["daily_sales"].round(2)
+
+# =========================
+# 7. Kontrola výsledku
+# =========================
+print("\nUkážka výsledku:")
+print(daily_sales.head())
+print(daily_sales.tail())
+print(f"\nPočet dní vo výsledku: {len(daily_sales)}")
+
+# =========================
+# 8. Uloženie
+# =========================
+daily_sales.to_csv(output_path, index=False, encoding="utf-8-sig")
+
+print(f"\nHotovo. Výstup uložený do:\n{output_path}")
+'''
+# =========================
+# 1. Cesty k súborom
+# =========================
+input_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\daily_sales_series_2022_2024.csv"
+output_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\monthly_actual_sales_2022_2024.csv"
+
+# =========================
+# 2. Načítanie daily sales series
+# =========================
+df = pd.read_csv(
+    input_path,
+    encoding="utf-8-sig",
+    parse_dates=["transaction_date"]
+)
+
+# istota pre numeric
+df["daily_sales"] = pd.to_numeric(df["daily_sales"], errors="coerce")
+
+# odstránenie prípadných chybných riadkov
+df = df.dropna(subset=["transaction_date", "daily_sales"])
+
+# =========================
+# 3. Vytvorenie year a month
+# =========================
+df["year"] = df["transaction_date"].dt.year
+df["month"] = df["transaction_date"].dt.month
+
+# =========================
+# 4. Mesačná agregácia
+# =========================
+monthly_actual_sales = (
+    df.groupby(["year", "month"], as_index=False)["daily_sales"]
+      .sum()
+      .rename(columns={"daily_sales": "monthly_actual_sales"})
+)
+
+# voliteľne zaokrúhlenie
+monthly_actual_sales["monthly_actual_sales"] = monthly_actual_sales["monthly_actual_sales"].round(2)
+
+# =========================
+# 5. Kontrola výsledku
+# =========================
+print("\nUkážka výsledku:")
+print(monthly_actual_sales.head())
+print(monthly_actual_sales.tail())
+print(f"\nPočet mesiacov vo výsledku: {len(monthly_actual_sales)}")
+
+# =========================
+# 6. Uloženie
+# =========================
+monthly_actual_sales.to_csv(output_path, index=False, encoding="utf-8-sig")
+
+print(f"\nHotovo. Výstup uložený do:\n{output_path}")
+
+
+
+
+import pandas as pd
+
+daily_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\daily_sales_series_2022_2024.csv"
+monthly_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\monthly_actual_sales_2022_2024.csv"
+
+daily_df = pd.read_csv(daily_path, encoding="utf-8-sig")
+monthly_df = pd.read_csv(monthly_path, encoding="utf-8-sig")
+
+daily_total = pd.to_numeric(daily_df["daily_sales"], errors="coerce").sum()
+monthly_total = pd.to_numeric(monthly_df["monthly_actual_sales"], errors="coerce").sum()
+
+print("Súčet daily_sales:", round(daily_total, 2))
+print("Súčet monthly_actual_sales:", round(monthly_total, 2))
+print("Rozdiel:", round(daily_total - monthly_total, 2))
+
+
+import pandas as pd
+
+daily_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\daily_sales_series_2022_2024.csv"
+monthly_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\monthly_actual_sales_2022_2024.csv"
+
+daily_df = pd.read_csv(daily_path, encoding="utf-8-sig")
+monthly_df = pd.read_csv(monthly_path, encoding="utf-8-sig")
+
+print("Stĺpce v daily_df:")
+print(daily_df.columns.tolist())
+
+print("\nStĺpce v monthly_df:")
+print(monthly_df.columns.tolist())
+
+import pandas as pd
+
+file_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\monthly_actual_sales_2022_2024.csv"
+monthly_df = pd.read_csv(file_path)
+
+print(monthly_df.head())
+print(monthly_df.columns.tolist())
+
+monthly_2023 = monthly_df[monthly_df["year"] == 2023].copy()
+monthly_2024 = monthly_df[monthly_df["year"] == 2024].copy()
+
+monthly_2023 = monthly_2023[["month", "monthly_actual_sales"]].rename(
+    columns={"monthly_actual_sales": "benchmark_forecast"}
+)
+
+monthly_2024 = monthly_2024[["year", "month", "monthly_actual_sales"]].rename(
+    columns={"monthly_actual_sales": "actual_2024"}
+)
+
+benchmark_table = monthly_2024.merge(monthly_2023, on="month", how="left")
+benchmark_table = benchmark_table.sort_values(["year", "month"]).reset_index(drop=True)
+
+print(benchmark_table)
+
+output_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\benchmark_tabulka_2024.csv"
+benchmark_table.to_csv(output_path, index=False)
+
+print(output_path)
+
+import pandas as pd
+
+file_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\monthly_actual_sales_2022_2024.csv"
+monthly_df = pd.read_csv(file_path)
+
+print(monthly_df.head())
+print(monthly_df.columns.tolist())
+
+monthly_2023 = monthly_df[monthly_df["year"] == 2023].copy()
+monthly_2024 = monthly_df[monthly_df["year"] == 2024].copy()
+
+monthly_2023 = monthly_2023[["month", "monthly_actual_sales"]].rename(
+    columns={"monthly_actual_sales": "benchmark_forecast"}
+)
+
+monthly_2024 = monthly_2024[["year", "month", "monthly_actual_sales"]].rename(
+    columns={"monthly_actual_sales": "actual_2024"}
+)
+
+benchmark_table = monthly_2024.merge(monthly_2023, on="month", how="left")
+benchmark_table = benchmark_table.sort_values(["year", "month"]).reset_index(drop=True)
+
+print(benchmark_table)
+
+output_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\benchmark_tabulka_2024.csv"
+benchmark_table.to_csv(output_path, index=False)
+
+print(output_path)
+
+benchmark_table["benchmark_abs_error"] = (
+    benchmark_table["benchmark_forecast"] - benchmark_table["actual_2024"]
+).abs()
+
+print(benchmark_table)
+
+benchmark_mae = benchmark_table["benchmark_abs_error"].mean()
+print(benchmark_mae)
+
+import math
+
+benchmark_rmse = math.sqrt(
+    ((benchmark_table["benchmark_forecast"] - benchmark_table["actual_2024"]) ** 2).mean()
+)
+
+print(benchmark_rmse) 
+print("hotovo")
+
+
+import math
+import numpy as np  # ZMENA 1: Pridaný import pre numpy (logaritmus a exponenciála)
+import pandas as pd
+from prophet import Prophet
+
+print("Prophet import OK")
+
+# 1. Načítanie daily aggregated sales
+file_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\daily_sales_series_2022_2024.csv"
+daily_df = pd.read_csv(file_path)
+
+# 2. Príprava dátumu
+daily_df["transaction_date"] = pd.to_datetime(daily_df["transaction_date"])
+
+# 3. Tréningové obdobie 2022–2023
+train_df = daily_df[
+    (daily_df["transaction_date"] >= "2022-01-01") &
+    (daily_df["transaction_date"] <= "2023-12-31")
+].copy()
+
+# 4. Premenovanie stĺpcov pre Prophet
+prophet_train = train_df.rename(columns={
+    "transaction_date": "ds",
+    "daily_sales": "y"
+})
+
+# --- ZMENA 2: Logaritmická transformácia cieľovej premennej ---
+prophet_train["y"] = np.log(prophet_train["y"])
+
+print(prophet_train.head())
+print(prophet_train.tail())
+print(prophet_train.columns.tolist())
+print(prophet_train.shape)
+
+# 5. Funkcia na výpočet Black Friday
+def get_black_friday(year):
+    november = pd.date_range(start=f"{year}-11-01", end=f"{year}-11-30", freq="D")
+    thursdays = november[november.weekday == 3]  # Thursday = 3
+    thanksgiving = thursdays[3]                  # 4th Thursday in November
+    black_friday = thanksgiving + pd.Timedelta(days=1)
+    return black_friday
+
+# 6. Custom holiday effects
+custom_holidays = pd.DataFrame([
+    {"holiday": "black_friday_period", "ds": get_black_friday(2022), "lower_window": 0, "upper_window": 3},
+    {"holiday": "black_friday_period", "ds": get_black_friday(2023), "lower_window": 0, "upper_window": 3},
+    {"holiday": "black_friday_period", "ds": get_black_friday(2024), "lower_window": 0, "upper_window": 3},
+
+    {"holiday": "pre_christmas_period", "ds": pd.Timestamp("2022-12-23"), "lower_window": -22, "upper_window": 0},
+    {"holiday": "pre_christmas_period", "ds": pd.Timestamp("2023-12-23"), "lower_window": -22, "upper_window": 0},
+    {"holiday": "pre_christmas_period", "ds": pd.Timestamp("2024-12-23"), "lower_window": -22, "upper_window": 0},
+])
+
+print(custom_holidays)
+
+# 7. Vytvorenie Prophet modelu
+# --- ZMENA 3: Zmena seasonality_mode na "additive" ---
+model = Prophet(
+    holidays=custom_holidays,
+    yearly_seasonality=True,
+    weekly_seasonality=True,
+    daily_seasonality=False,
+    seasonality_mode="additive",
+    changepoint_prior_scale=0.01,
+    seasonality_prior_scale=10.0
+)
+
+model.add_country_holidays(country_name="SK")
+
+print("Model created successfully")
+
+# 8. Fit modelu na zlogaritmovaných dátach
+model.fit(prophet_train)
+
+print("Model fitted successfully")
+
+# 9. Future dataframe pre forecast do konca 2024
+future = model.make_future_dataframe(periods=366, freq="D")
+
+# 10. Daily forecast
+forecast = model.predict(future)
+
+# --- ZMENA 4: Inverzná transformácia späť na reálne hodnoty (predaje) ---
+# Robíme to pred agregáciou, aby sa spočítavali reálne hodnoty a nie logaritmy.
+forecast["yhat"] = np.exp(forecast["yhat"])
+
+print(forecast[["ds", "yhat"]].tail())
+print(forecast.shape)
+
+# 11. Výber forecastu len pre rok 2024
+forecast_2024 = forecast[
+    (forecast["ds"] >= "2024-01-01") &
+    (forecast["ds"] <= "2024-12-31")
+][["ds", "yhat"]].copy()
+
+forecast_2024["year"] = forecast_2024["ds"].dt.year
+forecast_2024["month"] = forecast_2024["ds"].dt.month
+
+# 12. Agregácia daily forecastu na monthly forecast
+prophet_monthly = (
+    forecast_2024.groupby(["year", "month"], as_index=False)["yhat"]
+    .sum()
+    .rename(columns={"yhat": "prophet_forecast"})
+)
+
+print(prophet_monthly)
+
+# 13. Načítanie benchmark tabuľky
+benchmark_table = pd.read_csv(
+    r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\benchmark_tabulka_2024.csv"
+)
+
+print(benchmark_table.head())
+print(benchmark_table.columns.tolist())
+
+# 14. Spojenie benchmarku a Prophet forecastu
+final_forecast_table = benchmark_table.merge(
+    prophet_monthly,
+    on=["year", "month"],
+    how="left"
+)
+
+print(final_forecast_table)
+
+# 15. Výpočet Prophet absolute error, MAE, RMSE a WAPE na reálnych číslach
+final_forecast_table["prophet_abs_error"] = (
+    final_forecast_table["prophet_forecast"] - final_forecast_table["actual_2024"]
+).abs()
+
+prophet_mae = final_forecast_table["prophet_abs_error"].mean()
+
+prophet_rmse = math.sqrt(
+    ((final_forecast_table["prophet_forecast"] - final_forecast_table["actual_2024"]) ** 2).mean()
+)
+
+# WAPE = sum(abs error) / sum(actual) * 100
+if final_forecast_table["actual_2024"].sum() == 0:
+    prophet_wape = np.nan
+else:
+    prophet_wape = (
+        final_forecast_table["prophet_abs_error"].sum()
+        / final_forecast_table["actual_2024"].sum()
+    ) * 100
+
+print(final_forecast_table[[
+    "year",
+    "month",
+    "actual_2024",
+    "prophet_forecast",
+    "prophet_abs_error"
+]])
+
+print("Prophet MAE:", prophet_mae)
+print("Prophet RMSE:", prophet_rmse)
+print("Prophet WAPE (%):", prophet_wape)
+
+# 16. Finálna tabuľka na porovnanie
+print(final_forecast_table[[
+    "year",
+    "month",
+    "actual_2024",
+    "benchmark_forecast",
+    "prophet_forecast"
+]])
+
+print("hotovo")
+
+
+
+cross validation 
+
+import math
+import numpy as np
+import pandas as pd
+from prophet import Prophet
+from itertools import product
+
+# 1. Dáta
+file_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\daily_sales_series_2022_2024.csv"
+daily_df = pd.read_csv(file_path)
+daily_df["transaction_date"] = pd.to_datetime(daily_df["transaction_date"])
+
+# 2. Black Friday
+def get_black_friday(year):
+    november = pd.date_range(start=f"{year}-11-01", end=f"{year}-11-30", freq="D")
+    thursdays = november[november.weekday == 3]
+    thanksgiving = thursdays[3]
+    return thanksgiving + pd.Timedelta(days=1)
+
+# 3. Holidays
+custom_holidays = pd.DataFrame([
+    {"holiday": "black_friday_period", "ds": get_black_friday(2022), "lower_window": 0, "upper_window": 3},
+    {"holiday": "black_friday_period", "ds": get_black_friday(2023), "lower_window": 0, "upper_window": 3},
+    {"holiday": "black_friday_period", "ds": get_black_friday(2024), "lower_window": 0, "upper_window": 3},
+    {"holiday": "pre_christmas_period", "ds": pd.Timestamp("2022-12-23"), "lower_window": -22, "upper_window": 0},
+    {"holiday": "pre_christmas_period", "ds": pd.Timestamp("2023-12-23"), "lower_window": -22, "upper_window": 0},
+    {"holiday": "pre_christmas_period", "ds": pd.Timestamp("2024-12-23"), "lower_window": -22, "upper_window": 0},
+])
+
+# 4. Rolling validation mesiace
+validation_month_starts = pd.date_range(start="2023-01-01", end="2023-12-01", freq="MS")
+
+# 5. Parametre na test
+param_grid = {
+    "seasonality_mode": ["additive", "multiplicative"],
+    "changepoint_prior_scale": [0.001, 0.01, 0.05, 0.1],
+    "seasonality_prior_scale": [1.0, 5.0, 10.0, 20.0]
+}
+
+all_results = []
+
+for seasonality_mode, changepoint_prior_scale, seasonality_prior_scale in product(
+    param_grid["seasonality_mode"],
+    param_grid["changepoint_prior_scale"],
+    param_grid["seasonality_prior_scale"]
+):
+    abs_errors = []
+    sq_errors = []
+    total_actual = 0.0
+
+    failed = False
+
+    for month_start in validation_month_starts:
+        month_end = month_start + pd.offsets.MonthEnd(1)
+        train_end = month_start - pd.Timedelta(days=1)
+
+        train_df = daily_df[
+            (daily_df["transaction_date"] >= "2022-01-01") &
+            (daily_df["transaction_date"] <= train_end)
+        ].copy()
+
+        # ochrana pred nulami / zápornými hodnotami
+        if (train_df["daily_sales"] <= 0).any():
+            failed = True
+            break
+
+        prophet_train = train_df.rename(columns={
+            "transaction_date": "ds",
+            "daily_sales": "y"
+        })[["ds", "y"]].copy()
+
+        prophet_train["y"] = np.log(prophet_train["y"])
+
+        model = Prophet(
+            holidays=custom_holidays,
+            yearly_seasonality=True,
+            weekly_seasonality=True,
+            daily_seasonality=False,
+            seasonality_mode=seasonality_mode,
+            changepoint_prior_scale=changepoint_prior_scale,
+            seasonality_prior_scale=seasonality_prior_scale
+        )
+
+        model.add_country_holidays(country_name="SK")
+        model.fit(prophet_train)
+
+        periods = (month_end - train_end).days
+        future = model.make_future_dataframe(periods=periods, freq="D")
+        forecast = model.predict(future)
+
+        forecast["yhat"] = np.exp(forecast["yhat"])
+
+        forecast_month = forecast[
+            (forecast["ds"] >= month_start) &
+            (forecast["ds"] <= month_end)
+        ][["ds", "yhat"]].copy()
+
+        forecast_sum = forecast_month["yhat"].sum()
+
+        actual_sum = daily_df[
+            (daily_df["transaction_date"] >= month_start) &
+            (daily_df["transaction_date"] <= month_end)
+        ]["daily_sales"].sum()
+
+        abs_error = abs(forecast_sum - actual_sum)
+        sq_error = (forecast_sum - actual_sum) ** 2
+
+        abs_errors.append(abs_error)
+        sq_errors.append(sq_error)
+        total_actual += actual_sum
+
+    if failed:
+        continue
+
+    mae = np.mean(abs_errors)
+    rmse = math.sqrt(np.mean(sq_errors))
+    wape = (np.sum(abs_errors) / total_actual) * 100 if total_actual != 0 else np.nan
+
+    all_results.append({
+        "seasonality_mode": seasonality_mode,
+        "changepoint_prior_scale": changepoint_prior_scale,
+        "seasonality_prior_scale": seasonality_prior_scale,
+        "cv_mae": mae,
+        "cv_rmse": rmse,
+        "cv_wape": wape
+    })
+
+results_df = pd.DataFrame(all_results).sort_values("cv_wape")
+print(results_df)
+print("\nNajlepšia kombinácia:")
+print(results_df.iloc[0])
+
+from pathlib import Path
+import pandas as pd
+import unicodedata
+
+# =========================
+# 1. CESTY K SUBOROM
+# =========================
+abc_path = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\abc_analyza.csv")
+sales_path = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\cleaned_dataset_2022-2024.csv")
+
+# =========================
+# 2. POMOCNE FUNKCIE
+# =========================
+def load_csv_flexible(path):
+    separators = [";", ",", "\t"]
+    encodings = ["utf-8-sig", "utf-8", "cp1250", "latin1"]
+
+    last_error = None
+
+    for enc in encodings:
+        for sep in separators:
+            try:
+                df = pd.read_csv(path, sep=sep, encoding=enc)
+                df.columns = df.columns.str.strip().str.lower()
+
+                if len(df.columns) > 1:
+                    print(f"\nSubor {path.name} nacitany so sep='{sep}' a encoding='{enc}'")
+                    print("Stlpce:", df.columns.tolist())
+                    return df
+            except Exception as e:
+                last_error = e
+
+    raise ValueError(f"Nepodarilo sa nacitat subor {path}. Posledna chyba: {last_error}")
+
+
+def normalize_id_value(x):
+    if pd.isna(x):
+        return None
+    x = str(x)
+    x = unicodedata.normalize("NFKC", x)
+    x = x.replace("\u00A0", " ")
+    x = x.replace("–", "-").replace("—", "-").replace("−", "-")
+    x = x.strip().upper()
+    x = "".join(x.split())
+    return x
+
+
+def parse_line_total(series):
+    s = series.astype(str).str.strip()
+
+    s = s.str.replace("\u00A0", "", regex=False)
+    s = s.str.replace(" ", "", regex=False)
+    s = s.str.replace("€", "", regex=False)
+
+    mask_eu = s.str.contains(",", na=False)
+    s.loc[mask_eu] = (
+        s.loc[mask_eu]
+        .str.replace(".", "", regex=False)
+        .str.replace(",", ".", regex=False)
+    )
+
+    return pd.to_numeric(s, errors="coerce")
+
+
+# =========================
+# 3. NACITANIE DAT
+# =========================
+abc = load_csv_flexible(abc_path)
+sales = load_csv_flexible(sales_path)
+
+# =========================
+# 4. KONTROLA POVINNYCH STLPCOV
+# =========================
+required_abc = {"design_id", "abc_class"}
+required_sales = {"design_id", "transaction_date", "line_total"}
+
+missing_abc = required_abc - set(abc.columns)
+missing_sales = required_sales - set(sales.columns)
+
+if missing_abc:
+    raise ValueError(f"V ABC subore chybaju stlpce: {missing_abc}")
+
+if missing_sales:
+    raise ValueError(f"V sales subore chybaju stlpce: {missing_sales}")
+
+# =========================
+# 5. CISTENIE ABC DAT
+# =========================
+abc["design_id"] = abc["design_id"].apply(normalize_id_value)
+abc["abc_class"] = abc["abc_class"].astype(str).str.strip().str.upper()
+
+# =========================
+# 6. CISTENIE SALES DAT
+# =========================
+sales["design_id"] = sales["design_id"].apply(normalize_id_value)
+
+# ulozime povodnu raw hodnotu datumu este pred parsovanim
+sales["transaction_date_raw"] = sales["transaction_date"].astype(str).str.strip()
+
+print("\n--- PRED PARSOVANIM SALES ---")
+print("Pocet riadkov:", len(sales))
+print("Ukazka transaction_date_raw:", sales["transaction_date_raw"].head(10).tolist())
+print("Ukazka line_total:", sales["line_total"].head(10).tolist())
+
+sales["transaction_date"] = pd.to_datetime(
+    sales["transaction_date_raw"],
+    format="%Y-%m-%d",
+    errors="coerce"
+)
+
+sales["line_total"] = parse_line_total(sales["line_total"])
+
+print("\n--- PO PARSOVANI SALES, ESTE PRED DROPNA ---")
+print("Neparsovane datumy:", sales["transaction_date"].isna().sum())
+print("Neparsovane line_total:", sales["line_total"].isna().sum())
+
+print("\nUkazka po parsovani:")
+print(sales[["design_id", "transaction_date_raw", "transaction_date", "line_total"]].head(10))
+
+failed_dates = sales.loc[sales["transaction_date"].isna(), "transaction_date_raw"]
+
+print("\nUkazka povodnych hodnot transaction_date, ktore zlyhali:")
+print(failed_dates.head(30).tolist())
+
+sales = sales.dropna(subset=["design_id", "transaction_date", "line_total"]).copy()
+
+print("\n--- PO DROPNA ---")
+print("Pocet riadkov:", len(sales))
+
+if sales.empty:
+    raise ValueError("Po parsovani a dropna nezostali v sales datasete ziadne riadky.")
+
+# =========================
+# 7. FILTER NA SEGMENT A
+# =========================
+abc_ids = set(abc.loc[abc["abc_class"] == "A", "design_id"].dropna().unique())
+sales_a = sales[sales["design_id"].isin(abc_ids)].copy()
+
+if sales_a.empty:
+    raise ValueError("Po filtrovani sa nenasli ziadne predaje pre segment A.")
+
+# =========================
+# 8. KONTROLA DATOVEJ PRIPRAVY
+# =========================
+print("\n--- KONTROLA DATOVEJ PRIPRAVY ---")
+print("ABC riadky:", len(abc))
+print("Sales riadky po cisteni:", len(sales))
+print("Sales A riadky:", len(sales_a))
+
+print("\nNull hodnoty v sales_a:")
+print(sales_a[["design_id", "transaction_date", "line_total"]].isna().sum())
+
+print("\nDatumovy rozsah sales_a:")
+print("Od:", sales_a["transaction_date"].min())
+print("Do:", sales_a["transaction_date"].max())
+
+print("\nUkazka sales_a:")
+print(sales_a[["design_id", "transaction_date", "line_total"]].head(10))
+
+print("\nPocet unikatnych design_id v segmente A so sales:")
+print(sales_a["design_id"].nunique())
+
+print("Hotovo")
+
+from pathlib import Path
+import pandas as pd
+
+# =========================
+# 1. CESTA K PRIPRAVENEMU SUBORU
+# =========================
+input_path = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\forecast segmentu A\pripravene data A segment.csv")
+
+# =========================
+# 2. NACITANIE DAT
+# =========================
+df = pd.read_csv(input_path, encoding="utf-8-sig")
+
+print("\n--- NACITANIE PRIPRAVENYCH DAT ---")
+print("Pocet riadkov:", len(df))
+print("Stlpce:", df.columns.tolist())
+
+# =========================
+# 3. KONTROLA POVINNYCH STLPCOV
+# =========================
+required_cols = {"transaction_date", "line_total"}
+missing_cols = required_cols - set(df.columns)
+
+if missing_cols:
+    raise ValueError(f"V subore chybaju stlpce: {missing_cols}")
+
+# =========================
+# 4. PARSOVANIE DAT
+# =========================
+df["transaction_date"] = pd.to_datetime(
+    df["transaction_date"].astype(str).str.strip(),
+    format="%Y-%m-%d",
+    errors="coerce"
+)
+
+df["line_total"] = pd.to_numeric(df["line_total"], errors="coerce")
+
+print("\n--- KONTROLA PO PARSOVANI ---")
+print("Neparsovane datumy:", df["transaction_date"].isna().sum())
+print("Neparsovane line_total:", df["line_total"].isna().sum())
+
+df = df.dropna(subset=["transaction_date", "line_total"]).copy()
+
+if df.empty:
+    raise ValueError("Po parsovani nezostali ziadne riadky.")
+
+# =========================
+# 5. MESAČNÁ AGREGÁCIA
+# =========================
+df["month"] = df["transaction_date"].dt.to_period("M").dt.to_timestamp()
+
+monthly_a = (
+    df.groupby("month", as_index=False)["line_total"]
+    .sum()
+    .rename(columns={"line_total": "actual_sales"})
+    .sort_values("month")
+    .reset_index(drop=True)
+)
+
+print("\n--- MESAČNÁ ČASOVÁ RADA ---")
+print(monthly_a)
+
+# =========================
+# 6. PRIPRAVA SEASONAL NAIVE BENCHMARKU
+# =========================
+benchmark_2023 = monthly_a[
+    (monthly_a["month"] >= "2023-01-01") & (monthly_a["month"] <= "2023-12-01")
+].copy()
+
+benchmark_2023["month"] = benchmark_2023["month"] + pd.DateOffset(years=1)
+benchmark_2023 = benchmark_2023.rename(columns={"actual_sales": "benchmark_forecast"})
+
+actual_2024 = monthly_a[
+    (monthly_a["month"] >= "2024-01-01") & (monthly_a["month"] <= "2024-12-01")
+].copy()
+
+benchmark_table = actual_2024.merge(
+    benchmark_2023[["month", "benchmark_forecast"]],
+    on="month",
+    how="left"
+).sort_values("month").reset_index(drop=True)
+
+print("\n--- BENCHMARK TABULKA PRE SEASONAL NAIVE ---")
+print(benchmark_table)
+
+if benchmark_table.empty:
+    raise ValueError("Benchmark tabulka je prazdna.")
+
+# =========================
+# 7. ULOZENIE VYSTUPU
+# =========================
+output_path = input_path.parent / "benchmark_seasonal_naive_segment_A.csv"
+benchmark_table.to_csv(output_path, index=False, encoding="utf-8-sig")
+
+print("\nSubor ulozeny do:")
+print(output_path)
+
+import numpy as np
+
+def mae(actual, forecast):
+    actual = np.array(actual, dtype=float)
+    forecast = np.array(forecast, dtype=float)
+    return np.mean(np.abs(actual - forecast))
+
+def rmse(actual, forecast):
+    actual = np.array(actual, dtype=float)
+    forecast = np.array(forecast, dtype=float)
+    return np.sqrt(np.mean((actual - forecast) ** 2))
+
+def wape(actual, forecast):
+    actual = np.array(actual, dtype=float)
+    forecast = np.array(forecast, dtype=float)
+    return np.sum(np.abs(actual - forecast)) / np.sum(actual) * 100
+
+benchmark_mae = mae(benchmark_table["actual_sales"], benchmark_table["benchmark_forecast"])
+benchmark_rmse = rmse(benchmark_table["actual_sales"], benchmark_table["benchmark_forecast"])
+benchmark_wape = wape(benchmark_table["actual_sales"], benchmark_table["benchmark_forecast"])
+
+print("\n--- METRIKY PRE BENCHMARK ---")
+print("MAE:", round(benchmark_mae, 2))
+print("RMSE:", round(benchmark_rmse, 2))
+print("WAPE:", round(benchmark_wape, 2), "%")
+
+print("Hotovo")
+
+from pathlib import Path
+import pandas as pd
+
+input_path = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\forecast segmentu A\pripravene data A segment.csv")
+
+df = pd.read_csv(input_path, encoding="utf-8-sig")
+df["transaction_date"] = pd.to_datetime(df["transaction_date"], format="%Y-%m-%d", errors="coerce")
+df["line_total"] = pd.to_numeric(df["line_total"], errors="coerce")
+
+jan_2024 = df[
+    (df["transaction_date"] >= "2024-01-01") &
+    (df["transaction_date"] < "2024-02-01")
+]
+
+print("Pocet riadkov január 2024:", len(jan_2024))
+print("Súčet line_total za január 2024:", round(jan_2024["line_total"].sum(), 2))
+
+
+from pathlib import Path
+import pandas as pd
+import numpy as np
+from prophet import Prophet
+
+# =========================
+# 1. CESTA K PRIPRAVENYM DATAM
+# =========================
+input_path = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\forecast segmentu A\pripravene data A segment.csv")
+
+# =========================
+# 2. NACITANIE DAT
+# =========================
+df = pd.read_csv(input_path, encoding="utf-8-sig")
+
+print("\n--- NACITANIE PRIPRAVENYCH DAT ---")
+print("Pocet riadkov:", len(df))
+print("Stlpce:", df.columns.tolist())
+
+required_cols = {"transaction_date", "line_total"}
+missing_cols = required_cols - set(df.columns)
+
+if missing_cols:
+    raise ValueError(f"V subore chybaju stlpce: {missing_cols}")
+
+# =========================
+# 3. PARSOVANIE
+# =========================
+df["transaction_date"] = pd.to_datetime(
+    df["transaction_date"].astype(str).str.strip(),
+    format="%Y-%m-%d",
+    errors="coerce"
+)
+
+df["line_total"] = pd.to_numeric(df["line_total"], errors="coerce")
+
+print("\n--- KONTROLA PO PARSOVANI ---")
+print("Neparsovane datumy:", df["transaction_date"].isna().sum())
+print("Neparsovane line_total:", df["line_total"].isna().sum())
+
+df = df.dropna(subset=["transaction_date", "line_total"]).copy()
+
+if df.empty:
+    raise ValueError("Po parsovani nezostali ziadne riadky.")
+
+# =========================
+# 4. TRAIN A ACTUAL 2024
+# =========================
+train_raw = df[df["transaction_date"] < "2024-01-01"].copy()
+actual_2024_raw = df[
+    (df["transaction_date"] >= "2024-01-01") &
+    (df["transaction_date"] <= "2024-12-31")
+].copy()
+
+print("\n--- ROZDELENIE DAT ---")
+print("Train riadky (2022-2023):", len(train_raw))
+print("Actual 2024 riadky:", len(actual_2024_raw))
+
+if train_raw.empty:
+    raise ValueError("Train dataset je prazdny.")
+
+if actual_2024_raw.empty:
+    raise ValueError("Actual 2024 dataset je prazdny.")
+
+# =========================
+# 5. DENNA CASOVA RADA PRE PROPHET
+# =========================
+train_daily = (
+    train_raw.assign(ds=train_raw["transaction_date"].dt.normalize())
+    .groupby("ds", as_index=False)["line_total"]
+    .sum()
+    .rename(columns={"line_total": "y"})
+)
+
+full_train_dates = pd.DataFrame({
+    "ds": pd.date_range(start=train_daily["ds"].min(), end="2023-12-31", freq="D")
+})
+
+train_daily = full_train_dates.merge(train_daily, on="ds", how="left")
+train_daily["y"] = train_daily["y"].fillna(0)
+
+print("\n--- DENNA CASOVA RADA PRE PROPHET PRED LOG TRANSFORMACIOU ---")
+print("Pocet riadkov:", len(train_daily))
+print("Obdobie:", train_daily["ds"].min(), "->", train_daily["ds"].max())
+print(train_daily.head())
+
+# log transformacia
+train_daily["y"] = np.log1p(train_daily["y"])
+
+print("\n--- DENNA CASOVA RADA PRE PROPHET PO LOG TRANSFORMACII ---")
+print(train_daily.head())
+
+# =========================
+# 6. ACTUAL 2024 NA MESACNEJ UROVNI
+# =========================
+actual_2024_raw["month"] = actual_2024_raw["transaction_date"].dt.to_period("M").dt.to_timestamp()
+
+actual_2024 = (
+    actual_2024_raw.groupby("month", as_index=False)["line_total"]
+    .sum()
+    .rename(columns={"line_total": "actual_sales"})
+    .sort_values("month")
+    .reset_index(drop=True)
+)
+
+print("\n--- ACTUAL 2024 ---")
+print(actual_2024)
+
+# =========================
+# 7. CUSTOM HOLIDAYS
+# =========================
+def fourth_friday_of_november(year):
+    nov_days = pd.date_range(start=f"{year}-11-01", end=f"{year}-11-30", freq="D")
+    fridays = nov_days[nov_days.weekday == 4]
+    return fridays[3]
+
+years = [2022, 2023, 2024]
+
+pre_christmas = pd.DataFrame({
+    "holiday": "pre_christmas",
+    "ds": pd.to_datetime([f"{y}-12-23" for y in years]),
+    "lower_window": -22,
+    "upper_window": 0
+})
+
+black_friday = pd.DataFrame({
+    "holiday": "black_friday",
+    "ds": pd.to_datetime([fourth_friday_of_november(y) for y in years]),
+    "lower_window": 0,
+    "upper_window": 3
+})
+
+holidays_df = pd.concat([pre_christmas, black_friday], ignore_index=True)
+
+print("\n--- CUSTOM HOLIDAYS ---")
+print(holidays_df)
+
+# =========================
+# 8. PROPHET MODEL
+# =========================
+model = Prophet(
+    holidays=holidays_df,
+    growth="linear",
+    yearly_seasonality=True,
+    weekly_seasonality=True,
+    daily_seasonality=False,
+    seasonality_mode="additive",
+    changepoint_prior_scale=0.001,
+    seasonality_prior_scale=30.0
+)
+
+model.add_country_holidays(country_name="SK")
+model.fit(train_daily[["ds", "y"]])
+
+print("\n--- MODEL NAFITOVANY ---")
+
+# =========================
+# 9. FORECAST NA ROK 2024
+# =========================
+future_2024 = pd.DataFrame({
+    "ds": pd.date_range(start="2024-01-01", end="2024-12-31", freq="D")
+})
+
+forecast_2024 = model.predict(future_2024)
+
+# spatna transformacia z log skaly
+forecast_2024["prophet_forecast_daily"] = np.expm1(forecast_2024["yhat"])
+forecast_2024["prophet_forecast_daily"] = forecast_2024["prophet_forecast_daily"].clip(lower=0)
+
+print("\n--- DIAGNOSTIKA FORECASTU PO SPATNEJ TRANSFORMACII ---")
+print("Minimum denny forecast:", forecast_2024["prophet_forecast_daily"].min())
+print("Maximum denny forecast:", forecast_2024["prophet_forecast_daily"].max())
+
+forecast_2024["month"] = forecast_2024["ds"].dt.to_period("M").dt.to_timestamp()
+
+prophet_monthly = (
+    forecast_2024.groupby("month", as_index=False)["prophet_forecast_daily"]
+    .sum()
+    .rename(columns={"prophet_forecast_daily": "prophet_forecast"})
+    .sort_values("month")
+    .reset_index(drop=True)
+)
+
+print("\n--- PROPHET FORECAST 2024 NA MESACNEJ UROVNI ---")
+print(prophet_monthly)
+
+# =========================
+# 10. FINALNA TABULKA V ROVNAKEJ FORME AKO BENCHMARK
+# =========================
+prophet_comparison = actual_2024.merge(
+    prophet_monthly,
+    on="month",
+    how="left"
+).sort_values("month").reset_index(drop=True)
+
+print("\n--- FINALNA POROVNAVACIA TABULKA PRE PROPHET ---")
+print(prophet_comparison)
+
+if prophet_comparison.empty:
+    raise ValueError("Finalna Prophet tabulka je prazdna.")
+
+# =========================
+# 11. METRIKY PRE PROPHET
+# =========================
+def mae(actual, forecast):
+    actual = np.array(actual, dtype=float)
+    forecast = np.array(forecast, dtype=float)
+    return np.mean(np.abs(actual - forecast))
+
+def rmse(actual, forecast):
+    actual = np.array(actual, dtype=float)
+    forecast = np.array(forecast, dtype=float)
+    return np.sqrt(np.mean((actual - forecast) ** 2))
+
+def wape(actual, forecast):
+    actual = np.array(actual, dtype=float)
+    forecast = np.array(forecast, dtype=float)
+    if np.sum(actual) == 0:
+        return np.nan
+    return np.sum(np.abs(actual - forecast)) / np.sum(actual) * 100
+
+prophet_mae = mae(prophet_comparison["actual_sales"], prophet_comparison["prophet_forecast"])
+prophet_rmse = rmse(prophet_comparison["actual_sales"], prophet_comparison["prophet_forecast"])
+prophet_wape = wape(prophet_comparison["actual_sales"], prophet_comparison["prophet_forecast"])
+
+print("\n--- METRIKY PRE PROPHET ---")
+print("MAE:", round(prophet_mae, 2))
+print("RMSE:", round(prophet_rmse, 2))
+print("WAPE:", round(prophet_wape, 2))
+
+print("Hotovo")
+
+
+
+--- PROPHET FORECAST 2024 NA MESACNEJ UROVNI ---
+        month  prophet_forecast
+0  2024-01-01      8.477871e+05
+1  2024-02-01      8.660870e+05
+2  2024-03-01      9.833323e+05
+3  2024-04-01      7.853351e+05
+4  2024-05-01      8.925677e+05
+5  2024-06-01      9.851531e+05
+6  2024-07-01      1.030726e+06
+7  2024-08-01      9.976419e+05
+8  2024-09-01      8.673077e+05
+9  2024-10-01      8.228388e+05
+10 2024-11-01      6.927291e+05
+11 2024-12-01      9.149255e+05
+
+--- FINALNA POROVNAVACIA TABULKA PRE PROPHET ---
+        month  actual_sales  prophet_forecast
+0  2024-01-01     942131.16      8.477871e+05
+1  2024-02-01     927289.61      8.660870e+05
+2  2024-03-01    1088114.71      9.833323e+05
+3  2024-04-01     789103.29      7.853351e+05
+4  2024-05-01     800252.73      8.925677e+05
+5  2024-06-01     814241.72      9.851531e+05
+6  2024-07-01     830822.66      1.030726e+06
+7  2024-08-01     765898.86      9.976419e+05
+8  2024-09-01     669017.94      8.673077e+05
+9  2024-10-01     630658.28      8.228388e+05
+10 2024-11-01     590080.17      6.927291e+05
+11 2024-12-01     827536.30      9.149255e+05
+
+--- METRIKY PRE PROPHET ---
+MAE: 128289.84
+RMSE: 144182.98
+WAPE: 15.91
+Hotovo
+
+
+
+
+
+
+
+
+
+
+
+
+ladenie parametrov
+
+
+import itertools
+import numpy as np
+import pandas as pd
+from prophet import Prophet
+from prophet.diagnostics import cross_validation
+
+param_grid = {
+    "changepoint_prior_scale": [0.01, 0.05, 0.1],
+    "seasonality_prior_scale": [0.1, 1.0, 10.0],
+    "seasonality_mode": ["additive", "multiplicative"]
+}
+
+all_params = [
+    dict(zip(param_grid.keys(), values))
+    for values in itertools.product(*param_grid.values())
+]
+
+results = []
+
+for params in all_params:
+    print("\nTestujem:", params)
+
+    model = Prophet(
+        holidays=holidays_df,
+        growth="linear",
+        yearly_seasonality=True,
+        weekly_seasonality=True,
+        daily_seasonality=False,
+        changepoint_prior_scale=params["changepoint_prior_scale"],
+        seasonality_prior_scale=params["seasonality_prior_scale"],
+        seasonality_mode=params["seasonality_mode"]
+    )
+
+    model.add_country_holidays(country_name="SK")
+    model.fit(train_daily[["ds", "y"]])
+
+    df_cv = cross_validation(
+        model,
+        initial="450 days",
+        period="30 days",
+        horizon="90 days"
+    )
+
+    mae_value = np.mean(np.abs(df_cv["y"] - df_cv["yhat"]))
+    wape_value = np.sum(np.abs(df_cv["y"] - df_cv["yhat"])) / np.sum(df_cv["y"]) * 100
+
+    results.append({
+        "changepoint_prior_scale": params["changepoint_prior_scale"],
+        "seasonality_prior_scale": params["seasonality_prior_scale"],
+        "seasonality_mode": params["seasonality_mode"],
+        "cv_mae": mae_value,
+        "cv_wape": wape_value
+    })
+
+tuning_results = pd.DataFrame(results).sort_values("cv_wape").reset_index(drop=True)
+
+print("\n--- VYSLEDKY TUNINGU PODLA CV ---")
+print(tuning_results)
+
+print("\n--- NAJLEPSIE NASTAVENIE ---")
+print(tuning_results.iloc[0])
+
+
+
+
+
+
+
+--- VYSLEDKY TUNINGU PODLA CV ---
+    changepoint_prior_scale  seasonality_prior_scale seasonality_mode    cv_mae   cv_wape
+0                      0.10                     10.0         additive  0.142798  1.312262
+1                      0.10                      0.1         additive  0.142929  1.313466
+2                      0.10                      1.0         additive  0.143251  1.316428
+3                      0.10                      1.0   multiplicative  0.144089  1.324131
+4                      0.10                     10.0   multiplicative  0.144522  1.328113
+5                      0.10                      0.1   multiplicative  0.145071  1.333157
+6                      0.05                      1.0         additive  0.150803  1.385831
+7                      0.05                      0.1         additive  0.151005  1.387682
+8                      0.05                     10.0         additive  0.151222  1.389682
+9                      0.05                      0.1   multiplicative  0.152002  1.396849
+10                     0.05                      1.0   multiplicative  0.152668  1.402968
+11                     0.05                     10.0   multiplicative  0.153134  1.407247
+12                     0.01                     10.0         additive  0.167187  1.536393
+13                     0.01                      0.1         additive  0.168710  1.550391
+14                     0.01                      1.0         additive  0.168950  1.552591
+15                     0.01                      0.1   multiplicative  0.169080  1.553790
+16                     0.01                     10.0   multiplicative  0.169539  1.558007
+17                     0.01                      1.0   multiplicative  0.170335  1.565322
+
+--- NAJLEPSIE NASTAVENIE ---
+changepoint_prior_scale         0.1
+seasonality_prior_scale        10.0
+seasonality_mode           additive
+cv_mae                     0.142798
+cv_wape                    1.312262
+Name: 0, dtype: object
+Hotovo
+
+print("Hotovo")
+
+from pathlib import Path
+import pandas as pd
+
+# cesty k suborom
+total_path = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\cleaned_dataset_2022-2024.csv")
+segment_a_path = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\forecast segmentu A\pripravene data A segment.csv")
+
+# nacitanie dat
+total_df = pd.read_csv(total_path, encoding="utf-8-sig")
+a_df = pd.read_csv(segment_a_path, encoding="utf-8-sig")
+
+# parsovanie
+total_df["transaction_date"] = pd.to_datetime(
+    total_df["transaction_date"].astype(str).str.strip(),
+    format="%Y-%m-%d",
+    errors="coerce"
+)
+a_df["transaction_date"] = pd.to_datetime(
+    a_df["transaction_date"].astype(str).str.strip(),
+    format="%Y-%m-%d",
+    errors="coerce"
+)
+
+total_df["line_total"] = pd.to_numeric(total_df["line_total"], errors="coerce")
+a_df["line_total"] = pd.to_numeric(a_df["line_total"], errors="coerce")
+
+# vycistenie
+total_df = total_df.dropna(subset=["transaction_date", "line_total"]).copy()
+a_df = a_df.dropna(subset=["transaction_date", "line_total"]).copy()
+
+# roky
+total_2023 = total_df[
+    (total_df["transaction_date"] >= "2023-01-01") &
+    (total_df["transaction_date"] < "2024-01-01")
+]["line_total"].sum()
+
+total_2024 = total_df[
+    (total_df["transaction_date"] >= "2024-01-01") &
+    (total_df["transaction_date"] < "2025-01-01")
+]["line_total"].sum()
+
+a_2023 = a_df[
+    (a_df["transaction_date"] >= "2023-01-01") &
+    (a_df["transaction_date"] < "2024-01-01")
+]["line_total"].sum()
+
+a_2024 = a_df[
+    (a_df["transaction_date"] >= "2024-01-01") &
+    (a_df["transaction_date"] < "2025-01-01")
+]["line_total"].sum()
+
+share_2023 = a_2023 / total_2023 * 100
+share_2024 = a_2024 / total_2024 * 100
+
+print("\n--- PODIEL SEGMENTU A NA TOTAL SALES ---")
+print("Total sales 2023:", round(total_2023, 2))
+print("A segment sales 2023:", round(a_2023, 2))
+print("Podiel A segmentu 2023:", round(share_2023, 2), "%")
+
+print()
+
+print("Total sales 2024:", round(total_2024, 2))
+print("A segment sales 2024:", round(a_2024, 2))
+print("Podiel A segmentu 2024:", round(share_2024, 2), "%")
+import pandas as pd
+from pathlib import Path
+
+# =========================================================
+# 1) CESTY K SUBOROM
+# =========================================================
+ABC_PATH = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\abc_analyza.csv")
+TX_PATH = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\cleaned_dataset_2022-2024.csv")
+
+# =========================================================
+# 2) POMOCNE FUNKCIE
+# =========================================================
+def read_csv_flexible(path: Path) -> pd.DataFrame:
+    """
+    Skusi nacitat CSV s viacerymi encodingami a automatickou detekciou separatora.
+    """
+    encodings_to_try = ["utf-8-sig", "utf-8", "cp1250", "latin1"]
+    last_error = None
+
+    for enc in encodings_to_try:
+        try:
+            df = pd.read_csv(path, sep=None, engine="python", encoding=enc)
+            print(f"[OK] Nacitany subor: {path.name} | encoding={enc}")
+            return df
+        except Exception as e:
+            last_error = e
+
+    raise RuntimeError(f"Nepodarilo sa nacitat subor {path}. Posledna chyba: {last_error}")
+
+
+def normalize_design_id(series: pd.Series) -> pd.Series:
+    """
+    Normalizacia kluca pre join:
+    - string
+    - trim
+    - upper
+    - prazdne retazce -> NA
+    """
+    s = series.astype("string").str.strip().str.upper()
+    s = s.replace({"": pd.NA, "NAN": pd.NA, "NONE": pd.NA, "<NA>": pd.NA})
+    return s
+
+
+def find_column(df: pd.DataFrame, candidates: list[str], label: str) -> str:
+    """
+    Najde stlpec podla zoznamu moznych nazvov.
+    """
+    cols_lower = {c.lower(): c for c in df.columns}
+
+    for cand in candidates:
+        if cand.lower() in cols_lower:
+            return cols_lower[cand.lower()]
+
+    raise KeyError(
+        f"Nepodarilo sa najst stlpec pre '{label}'.\n"
+        f"Dostupne stlpce: {list(df.columns)}"
+    )
+
+
+# =========================================================
+# 3) NACITANIE DAT
+# =========================================================
+abc = read_csv_flexible(ABC_PATH)
+tx = read_csv_flexible(TX_PATH)
+
+print("\n--- STLPCE V ABC TABULKE ---")
+print(list(abc.columns))
+
+print("\n--- STLPCE V TRANSAKCNEJ TABULKE ---")
+print(list(tx.columns))
+
+# =========================================================
+# 4) IDENTIFIKACIA KLUCOVYCH STLPCOV
+# =========================================================
+# Transakcna tabulka
+tx_design_col = find_column(tx, ["design_id"], "design_id v transakciach")
+tx_date_col = find_column(tx, ["transaction_date"], "transaction_date v transakciach")
+tx_revenue_col = find_column(tx, ["line_total"], "line_total v transakciach")
+
+# ABC tabulka
+abc_design_col = find_column(
+    abc,
+    ["design_id", "design", "product_id"],
+    "design_id v ABC tabulke"
+)
+
+abc_segment_col = find_column(
+    abc,
+    ["abc_segment", "segment", "abc", "abc_class", "category"],
+    "ABC segment v ABC tabulke"
+)
+
+# =========================================================
+# 5) CISTENIE A PRIPRAVA
+# =========================================================
+# Normalizacia design_id
+tx["design_id_norm"] = normalize_design_id(tx[tx_design_col])
+abc["design_id_norm"] = normalize_design_id(abc[abc_design_col])
+
+# Standardizacia segmentu
+abc["abc_segment_norm"] = (
+    abc[abc_segment_col]
+    .astype("string")
+    .str.strip()
+    .str.upper()
+)
+
+# Parsovanie datumu
+tx["transaction_date_parsed"] = pd.to_datetime(tx[tx_date_col], errors="coerce")
+tx["year"] = tx["transaction_date_parsed"].dt.year
+
+# Revenue na numeric
+tx["line_total_num"] = pd.to_numeric(tx[tx_revenue_col], errors="coerce")
+
+# Vyhadzujeme zaznamy, ktore sa nedaju pouzit
+tx_valid = tx.dropna(subset=["design_id_norm", "transaction_date_parsed", "line_total_num"]).copy()
+abc_valid = abc.dropna(subset=["design_id_norm", "abc_segment_norm"]).copy()
+
+# Ak je v ABC tabulke viac riadkov na ten isty design_id, nechame prvy a upozornime
+dup_abc = abc_valid["design_id_norm"].duplicated().sum()
+if dup_abc > 0:
+    print(f"\n[WARNING] V ABC tabulke je {dup_abc} duplicitnych design_id. Ponechavam prvy vyskyt.")
+    abc_valid = abc_valid.drop_duplicates(subset=["design_id_norm"], keep="first")
+
+# Mnozina designov z training obdobia 2022-2023
+train_designs = set(
+    tx_valid.loc[tx_valid["year"].isin([2022, 2023]), "design_id_norm"].unique()
+)
+
+# ABC mapping z training tabulky
+abc_map = abc_valid[["design_id_norm", "abc_segment_norm"]].copy()
+
+# =========================================================
+# 6) PRIPRAVA 2024 DAT
+# =========================================================
+tx_2024 = tx_valid.loc[tx_valid["year"] == 2024].copy()
+
+if tx_2024.empty:
+    raise ValueError("V transakcnych datach sa nenasli ziadne zaznamy pre rok 2024.")
+
+# Join 2024 transakcii na ABC tabulku
+tx_2024 = tx_2024.merge(
+    abc_map,
+    on="design_id_norm",
+    how="left"
+)
+
+# Flagy
+tx_2024["is_seen_in_train"] = tx_2024["design_id_norm"].isin(train_designs)
+tx_2024["is_new_design"] = ~tx_2024["is_seen_in_train"]
+tx_2024["is_mapped_to_abc"] = tx_2024["abc_segment_norm"].notna()
+
+# Toto je technicka kontrola:
+# design existoval v train, ale po join-e nema ABC segment
+tx_2024["is_unassigned_existing_design"] = tx_2024["is_seen_in_train"] & (~tx_2024["is_mapped_to_abc"])
+
+# =========================================================
+# 7) VYPOCTY - 4 HLAVNE KONTROLY
+# =========================================================
+total_revenue_2024 = tx_2024["line_total_num"].sum()
+
+# 1. Revenue 2024 z designov, ktore existovali uz v train 2022-2023
+revenue_2024_seen_in_train = tx_2024.loc[
+    tx_2024["is_seen_in_train"],
+    "line_total_num"
+].sum()
+
+# 2. Revenue 2024 z novych designov
+revenue_2024_new_designs = tx_2024.loc[
+    tx_2024["is_new_design"],
+    "line_total_num"
+].sum()
+
+# 3. Revenue 2024 nepriradene k ABC tabulke napriek tomu, ze design existoval uz v train
+revenue_2024_unassigned_existing = tx_2024.loc[
+    tx_2024["is_unassigned_existing_design"],
+    "line_total_num"
+].sum()
+
+# 4. Revenue 2024 segmentu A na porovnatelnej baze
+revenue_2024_segment_a = tx_2024.loc[
+    tx_2024["abc_segment_norm"] == "A",
+    "line_total_num"
+].sum()
+
+revenue_2024_segment_a_comparable_base = tx_2024.loc[
+    tx_2024["is_seen_in_train"] & (tx_2024["abc_segment_norm"] == "A"),
+    "line_total_num"
+].sum()
+
+comparable_base_2024 = tx_2024.loc[
+    tx_2024["is_seen_in_train"],
+    "line_total_num"
+].sum()
+
+# Podiely
+share_a_full_2024 = revenue_2024_segment_a / total_revenue_2024 if total_revenue_2024 != 0 else None
+share_new_designs_2024 = revenue_2024_new_designs / total_revenue_2024 if total_revenue_2024 != 0 else None
+share_unassigned_existing_2024 = revenue_2024_unassigned_existing / total_revenue_2024 if total_revenue_2024 != 0 else None
+share_a_comparable_2024 = revenue_2024_segment_a_comparable_base / comparable_base_2024 if comparable_base_2024 != 0 else None
+
+# =========================================================
+# 8) DOPLNKOVA DEKOMPOZICIA 2024
+# =========================================================
+segment_revenue_2024 = (
+    tx_2024.groupby("abc_segment_norm", dropna=False)["line_total_num"]
+    .sum()
+    .reset_index()
+    .rename(columns={"abc_segment_norm": "segment", "line_total_num": "revenue_2024"})
+)
+
+segment_revenue_2024["share_of_total_2024"] = segment_revenue_2024["revenue_2024"] / total_revenue_2024
+
+# Pocet unikátnych designov
+count_2024_total_designs = tx_2024["design_id_norm"].nunique()
+count_2024_seen_in_train = tx_2024.loc[tx_2024["is_seen_in_train"], "design_id_norm"].nunique()
+count_2024_new_designs = tx_2024.loc[tx_2024["is_new_design"], "design_id_norm"].nunique()
+count_2024_unassigned_existing = tx_2024.loc[tx_2024["is_unassigned_existing_design"], "design_id_norm"].nunique()
+
+# =========================================================
+# 9) VYSTUP
+# =========================================================
+print("\n" + "=" * 70)
+print("HLAVNE VYSLEDKY PRE ROK 2024")
+print("=" * 70)
+
+print(f"Total revenue 2024: {total_revenue_2024:,.2f} EUR")
+print()
+
+print("1) Revenue 2024 z designov, ktore existovali uz v train 2022-2023")
+print(f"   Revenue: {revenue_2024_seen_in_train:,.2f} EUR")
+print(f"   Share of total 2024: {revenue_2024_seen_in_train / total_revenue_2024:.2%}")
+print()
+
+print("2) Revenue 2024 z novych designov")
+print(f"   Revenue: {revenue_2024_new_designs:,.2f} EUR")
+print(f"   Share of total 2024: {share_new_designs_2024:.2%}")
+print()
+
+print("3) Revenue 2024 nepriradene k ABC tabulke napriek tomu, ze design existoval uz v train")
+print(f"   Revenue: {revenue_2024_unassigned_existing:,.2f} EUR")
+print(f"   Share of total 2024: {share_unassigned_existing_2024:.2%}")
+print()
+
+print("4) Revenue 2024 Segmentu A na porovnatelnej baze")
+print(f"   Revenue Segment A (2024, seen in train only): {revenue_2024_segment_a_comparable_base:,.2f} EUR")
+print(f"   Comparable base revenue 2024 (designs seen in train): {comparable_base_2024:,.2f} EUR")
+print(f"   Share A on comparable base: {share_a_comparable_2024:.2%}")
+print()
+
+print("DOPLNKOVO")
+print(f"   Share A on full 2024 revenue: {share_a_full_2024:.2%}")
+print(f"   Number of unique designs in 2024: {count_2024_total_designs:,}")
+print(f"   Number of unique designs in 2024 seen in train: {count_2024_seen_in_train:,}")
+print(f"   Number of unique NEW designs in 2024: {count_2024_new_designs:,}")
+print(f"   Number of unique existing-but-unassigned designs in 2024: {count_2024_unassigned_existing:,}")
+
+print("\n" + "=" * 70)
+print("REVENUE BY ABC SEGMENT IN 2024")
+print("=" * 70)
+print(segment_revenue_2024.sort_values("revenue_2024", ascending=False).to_string(index=False))
+
+# =========================================================
+# 10) VOLITELNE ULOZENIE VYSTUPOV
+# =========================================================
+output_dir = TX_PATH.parent
+
+summary = pd.DataFrame([
+    {
+        "metric": "total_revenue_2024",
+        "value": total_revenue_2024
+    },
+    {
+        "metric": "revenue_2024_seen_in_train",
+        "value": revenue_2024_seen_in_train
+    },
+    {
+        "metric": "share_seen_in_train_2024",
+        "value": revenue_2024_seen_in_train / total_revenue_2024 if total_revenue_2024 != 0 else None
+    },
+    {
+        "metric": "revenue_2024_new_designs",
+        "value": revenue_2024_new_designs
+    },
+    {
+        "metric": "share_new_designs_2024",
+        "value": share_new_designs_2024
+    },
+    {
+        "metric": "revenue_2024_unassigned_existing",
+        "value": revenue_2024_unassigned_existing
+    },
+    {
+        "metric": "share_unassigned_existing_2024",
+        "value": share_unassigned_existing_2024
+    },
+    {
+        "metric": "revenue_2024_segment_a_full",
+        "value": revenue_2024_segment_a
+    },
+    {
+        "metric": "share_a_full_2024",
+        "value": share_a_full_2024
+    },
+    {
+        "metric": "revenue_2024_segment_a_comparable_base",
+        "value": revenue_2024_segment_a_comparable_base
+    },
+    {
+        "metric": "comparable_base_2024",
+        "value": comparable_base_2024
+    },
+    {
+        "metric": "share_a_comparable_2024",
+        "value": share_a_comparable_2024
+    },
+])
+
+summary.to_csv(output_dir / "abc_2024_control_summary.csv", index=False, encoding="utf-8-sig")
+segment_revenue_2024.to_csv(output_dir / "abc_2024_segment_revenue.csv", index=False, encoding="utf-8-sig")
+
+print("\n[OK] Ulozene subory:")
+print(f" - {output_dir / 'abc_2024_control_summary.csv'}")
+print(f" - {output_dir / 'abc_2024_segment_revenue.csv'}")
+
+from pathlib import Path
+import pandas as pd
+import unicodedata
+
+# =========================
+# 1. CESTY K SUBOROM
+# =========================
+abc_path = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\abc_analyza.csv")
+sales_path = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\cleaned_dataset_2022-2024.csv")
+output_path = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\b_segment_forecast_input.csv")
+
+# =========================
+# 2. POMOCNE FUNKCIE
+# =========================
+def load_csv_flexible(path):
+    separators = [";", ",", "\t"]
+    encodings = ["utf-8-sig", "utf-8", "cp1250", "latin1"]
+
+    last_error = None
+
+    for enc in encodings:
+        for sep in separators:
+            try:
+                df = pd.read_csv(path, sep=sep, encoding=enc)
+                df.columns = df.columns.str.strip().str.lower()
+
+                if len(df.columns) > 1:
+                    print(f"\nSubor {path.name} nacitany so sep='{sep}' a encoding='{enc}'")
+                    print("Stlpce:", df.columns.tolist())
+                    return df
+            except Exception as e:
+                last_error = e
+
+    raise ValueError(f"Nepodarilo sa nacitat subor {path}. Posledna chyba: {last_error}")
+
+
+def normalize_id_value(x):
+    if pd.isna(x):
+        return None
+    x = str(x)
+    x = unicodedata.normalize("NFKC", x)
+    x = x.replace("\u00A0", " ")
+    x = x.replace("–", "-").replace("—", "-").replace("−", "-")
+    x = x.strip().upper()
+    x = "".join(x.split())
+    return x
+
+
+def parse_line_total(series):
+    s = series.astype(str).str.strip()
+
+    s = s.str.replace("\u00A0", "", regex=False)
+    s = s.str.replace(" ", "", regex=False)
+    s = s.str.replace("€", "", regex=False)
+
+    mask_eu = s.str.contains(",", na=False)
+    s.loc[mask_eu] = (
+        s.loc[mask_eu]
+        .str.replace(".", "", regex=False)
+        .str.replace(",", ".", regex=False)
+    )
+
+    return pd.to_numeric(s, errors="coerce")
+
+
+# =========================
+# 3. NACITANIE DAT
+# =========================
+abc = load_csv_flexible(abc_path)
+sales = load_csv_flexible(sales_path)
+
+# =========================
+# 4. KONTROLA POVINNYCH STLPCOV
+# =========================
+required_abc = {"design_id", "abc_class"}
+required_sales = {"design_id", "transaction_date", "line_total"}
+
+missing_abc = required_abc - set(abc.columns)
+missing_sales = required_sales - set(sales.columns)
+
+if missing_abc:
+    raise ValueError(f"V ABC subore chybaju stlpce: {missing_abc}")
+
+if missing_sales:
+    raise ValueError(f"V sales subore chybaju stlpce: {missing_sales}")
+
+# =========================
+# 5. CISTENIE ABC DAT
+# =========================
+abc["design_id"] = abc["design_id"].apply(normalize_id_value)
+abc["abc_class"] = abc["abc_class"].astype(str).str.strip().str.upper()
+
+# =========================
+# 6. CISTENIE SALES DAT
+# =========================
+sales["design_id"] = sales["design_id"].apply(normalize_id_value)
+
+# ulozime povodnu raw hodnotu datumu este pred parsovanim
+sales["transaction_date_raw"] = sales["transaction_date"].astype(str).str.strip()
+
+print("\n--- PRED PARSOVANIM SALES ---")
+print("Pocet riadkov:", len(sales))
+print("Ukazka transaction_date_raw:", sales["transaction_date_raw"].head(10).tolist())
+print("Ukazka line_total:", sales["line_total"].head(10).tolist())
+
+sales["transaction_date"] = pd.to_datetime(
+    sales["transaction_date_raw"],
+    format="%Y-%m-%d",
+    errors="coerce"
+)
+
+sales["line_total"] = parse_line_total(sales["line_total"])
+
+print("\n--- PO PARSOVANI SALES, ESTE PRED DROPNA ---")
+print("Neparsovane datumy:", sales["transaction_date"].isna().sum())
+print("Neparsovane line_total:", sales["line_total"].isna().sum())
+
+print("\nUkazka po parsovani:")
+print(sales[["design_id", "transaction_date_raw", "transaction_date", "line_total"]].head(10))
+
+failed_dates = sales.loc[sales["transaction_date"].isna(), "transaction_date_raw"]
+
+print("\nUkazka povodnych hodnot transaction_date, ktore zlyhali:")
+print(failed_dates.head(30).tolist())
+
+sales = sales.dropna(subset=["design_id", "transaction_date", "line_total"]).copy()
+
+print("\n--- PO DROPNA ---")
+print("Pocet riadkov:", len(sales))
+
+if sales.empty:
+    raise ValueError("Po parsovani a dropna nezostali v sales datasete ziadne riadky.")
+
+# =========================
+# 7. FILTER NA SEGMENT B
+# =========================
+abc_ids = set(abc.loc[abc["abc_class"] == "B", "design_id"].dropna().unique())
+sales_b = sales[sales["design_id"].isin(abc_ids)].copy()
+
+if sales_b.empty:
+    raise ValueError("Po filtrovani sa nenasli ziadne predaje pre segment B.")
+
+# =========================
+# 8. KONTROLA DATOVEJ PRIPRAVY
+# =========================
+print("\n--- KONTROLA DATOVEJ PRIPRAVY ---")
+print("ABC riadky:", len(abc))
+print("Sales riadky po cisteni:", len(sales))
+print("Sales B riadky:", len(sales_b))
+
+print("\nNull hodnoty v sales_b:")
+print(sales_b[["design_id", "transaction_date", "line_total"]].isna().sum())
+
+print("\nDatumovy rozsah sales_b:")
+print("Od:", sales_b["transaction_date"].min())
+print("Do:", sales_b["transaction_date"].max())
+
+print("\nUkazka sales_b:")
+print(sales_b[["design_id", "transaction_date", "line_total"]].head(10))
+
+print("\nPocet unikatnych design_id v segmente B so sales:")
+print(sales_b["design_id"].nunique())
+
+# =========================
+# 9. ULOZENIE VYSTUPU
+# =========================
+sales_b.to_csv(output_path, index=False, encoding="utf-8-sig")
+print(f"\nVystup pre segment B bol ulozeny do suboru: {output_path}")
+
+print("Hotovo")
+
+from pathlib import Path
+import pandas as pd
+import numpy as np
+
+# =========================
+# 1. CESTA K PRIPRAVENEMU SUBORU
+# =========================
+input_path = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\b_segment_forecast_input.csv")
+
+# =========================
+# 2. NACITANIE DAT
+# =========================
+df = pd.read_csv(input_path, encoding="utf-8-sig")
+
+print("\n--- NACITANIE PRIPRAVENYCH DAT ---")
+print("Pocet riadkov:", len(df))
+print("Stlpce:", df.columns.tolist())
+
+# =========================
+# 3. KONTROLA POVINNYCH STLPCOV
+# =========================
+required_cols = {"transaction_date", "line_total"}
+missing_cols = required_cols - set(df.columns)
+
+if missing_cols:
+    raise ValueError(f"V subore chybaju stlpce: {missing_cols}")
+
+# =========================
+# 4. PARSOVANIE DAT
+# =========================
+df["transaction_date"] = pd.to_datetime(
+    df["transaction_date"].astype(str).str.strip(),
+    format="%Y-%m-%d",
+    errors="coerce"
+)
+
+df["line_total"] = pd.to_numeric(df["line_total"], errors="coerce")
+
+print("\n--- KONTROLA PO PARSOVANI ---")
+print("Neparsovane datumy:", df["transaction_date"].isna().sum())
+print("Neparsovane line_total:", df["line_total"].isna().sum())
+
+df = df.dropna(subset=["transaction_date", "line_total"]).copy()
+
+if df.empty:
+    raise ValueError("Po parsovani nezostali ziadne riadky.")
+
+# =========================
+# 5. MESAČNÁ AGREGÁCIA
+# =========================
+df["month"] = df["transaction_date"].dt.to_period("M").dt.to_timestamp()
+
+monthly_b = (
+    df.groupby("month", as_index=False)["line_total"]
+    .sum()
+    .rename(columns={"line_total": "actual_sales"})
+    .sort_values("month")
+    .reset_index(drop=True)
+)
+
+print("\n--- MESAČNÁ ČASOVÁ RADA ---")
+print(monthly_b)
+
+# =========================
+# 6. PRIPRAVA SEASONAL NAIVE BENCHMARKU
+# =========================
+benchmark_2023 = monthly_b[
+    (monthly_b["month"] >= "2023-01-01") & (monthly_b["month"] <= "2023-12-01")
+].copy()
+
+benchmark_2023["month"] = benchmark_2023["month"] + pd.DateOffset(years=1)
+benchmark_2023 = benchmark_2023.rename(columns={"actual_sales": "benchmark_forecast"})
+
+actual_2024 = monthly_b[
+    (monthly_b["month"] >= "2024-01-01") & (monthly_b["month"] <= "2024-12-01")
+].copy()
+
+benchmark_table = actual_2024.merge(
+    benchmark_2023[["month", "benchmark_forecast"]],
+    on="month",
+    how="left"
+).sort_values("month").reset_index(drop=True)
+
+print("\n--- BENCHMARK TABULKA PRE SEASONAL NAIVE ---")
+print(benchmark_table)
+
+if benchmark_table.empty:
+    raise ValueError("Benchmark tabulka je prazdna.")
+
+# =========================
+# 7. ULOZENIE VYSTUPU
+# =========================
+output_path = input_path.parent / "benchmark_seasonal_naive_segment_B.csv"
+benchmark_table.to_csv(output_path, index=False, encoding="utf-8-sig")
+
+print("\nSubor ulozeny do:")
+print(output_path)
+
+# =========================
+# 8. METRIKY
+# =========================
+def mae(actual, forecast):
+    actual = np.array(actual, dtype=float)
+    forecast = np.array(forecast, dtype=float)
+    return np.mean(np.abs(actual - forecast))
+
+def rmse(actual, forecast):
+    actual = np.array(actual, dtype=float)
+    forecast = np.array(forecast, dtype=float)
+    return np.sqrt(np.mean((actual - forecast) ** 2))
+
+def wape(actual, forecast):
+    actual = np.array(actual, dtype=float)
+    forecast = np.array(forecast, dtype=float)
+    return np.sum(np.abs(actual - forecast)) / np.sum(actual) * 100
+
+benchmark_mae = mae(benchmark_table["actual_sales"], benchmark_table["benchmark_forecast"])
+benchmark_rmse = rmse(benchmark_table["actual_sales"], benchmark_table["benchmark_forecast"])
+benchmark_wape = wape(benchmark_table["actual_sales"], benchmark_table["benchmark_forecast"])
+
+print("\n--- METRIKY PRE BENCHMARK ---")
+print("MAE:", round(benchmark_mae, 2))
+print("RMSE:", round(benchmark_rmse, 2))
+print("WAPE:", round(benchmark_wape, 2), "%")
+
+print("Hotovo")
+
+from pathlib import Path
+import pandas as pd
+import numpy as np
+from prophet import Prophet
+
+# =========================
+# 1. CESTA K PRIPRAVENYM DATAM
+# =========================
+input_path = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\b_segment_forecast_input.csv")
+
+# =========================
+# 2. NACITANIE DAT
+# =========================
+df = pd.read_csv(input_path, encoding="utf-8-sig")
+
+print("\n--- NACITANIE PRIPRAVENYCH DAT ---")
+print("Pocet riadkov:", len(df))
+print("Stlpce:", df.columns.tolist())
+
+required_cols = {"transaction_date", "line_total"}
+missing_cols = required_cols - set(df.columns)
+
+if missing_cols:
+    raise ValueError(f"V subore chybaju stlpce: {missing_cols}")
+
+# =========================
+# 3. PARSOVANIE
+# =========================
+df["transaction_date"] = pd.to_datetime(
+    df["transaction_date"].astype(str).str.strip(),
+    format="%Y-%m-%d",
+    errors="coerce"
+)
+
+df["line_total"] = pd.to_numeric(df["line_total"], errors="coerce")
+
+print("\n--- KONTROLA PO PARSOVANI ---")
+print("Neparsovane datumy:", df["transaction_date"].isna().sum())
+print("Neparsovane line_total:", df["line_total"].isna().sum())
+
+df = df.dropna(subset=["transaction_date", "line_total"]).copy()
+
+if df.empty:
+    raise ValueError("Po parsovani nezostali ziadne riadky.")
+
+# =========================
+# 4. TRAIN A ACTUAL 2024
+# =========================
+train_raw = df[df["transaction_date"] < "2024-01-01"].copy()
+actual_2024_raw = df[
+    (df["transaction_date"] >= "2024-01-01") &
+    (df["transaction_date"] <= "2024-12-31")
+].copy()
+
+print("\n--- ROZDELENIE DAT ---")
+print("Train riadky (2022-2023):", len(train_raw))
+print("Actual 2024 riadky:", len(actual_2024_raw))
+
+if train_raw.empty:
+    raise ValueError("Train dataset je prazdny.")
+
+if actual_2024_raw.empty:
+    raise ValueError("Actual 2024 dataset je prazdny.")
+
+# =========================
+# 5. DENNA CASOVA RADA PRE PROPHET
+# =========================
+train_daily = (
+    train_raw.assign(ds=train_raw["transaction_date"].dt.normalize())
+    .groupby("ds", as_index=False)["line_total"]
+    .sum()
+    .rename(columns={"line_total": "y"})
+)
+
+full_train_dates = pd.DataFrame({
+    "ds": pd.date_range(start=train_daily["ds"].min(), end="2023-12-31", freq="D")
+})
+
+train_daily = full_train_dates.merge(train_daily, on="ds", how="left")
+train_daily["y"] = train_daily["y"].fillna(0)
+
+print("\n--- DENNA CASOVA RADA PRE PROPHET PRED LOG TRANSFORMACIOU ---")
+print("Pocet riadkov:", len(train_daily))
+print("Obdobie:", train_daily["ds"].min(), "->", train_daily["ds"].max())
+print(train_daily.head())
+
+# log transformacia
+train_daily["y"] = np.log1p(train_daily["y"])
+
+print("\n--- DENNA CASOVA RADA PRE PROPHET PO LOG TRANSFORMACII ---")
+print(train_daily.head())
+
+# =========================
+# 6. ACTUAL 2024 NA MESACNEJ UROVNI
+# =========================
+actual_2024_raw["month"] = actual_2024_raw["transaction_date"].dt.to_period("M").dt.to_timestamp()
+
+actual_2024 = (
+    actual_2024_raw.groupby("month", as_index=False)["line_total"]
+    .sum()
+    .rename(columns={"line_total": "actual_sales"})
+    .sort_values("month")
+    .reset_index(drop=True)
+)
+
+print("\n--- ACTUAL 2024 ---")
+print(actual_2024)
+
+# =========================
+# 7. CUSTOM HOLIDAYS
+# =========================
+def fourth_friday_of_november(year):
+    nov_days = pd.date_range(start=f"{year}-11-01", end=f"{year}-11-30", freq="D")
+    fridays = nov_days[nov_days.weekday == 4]
+    return fridays[3]
+
+years = [2022, 2023, 2024]
+
+pre_christmas = pd.DataFrame({
+    "holiday": "pre_christmas",
+    "ds": pd.to_datetime([f"{y}-12-23" for y in years]),
+    "lower_window": -22,
+    "upper_window": 0
+})
+
+black_friday = pd.DataFrame({
+    "holiday": "black_friday",
+    "ds": pd.to_datetime([fourth_friday_of_november(y) for y in years]),
+    "lower_window": 0,
+    "upper_window": 3
+})
+
+holidays_df = pd.concat([pre_christmas, black_friday], ignore_index=True)
+
+print("\n--- CUSTOM HOLIDAYS ---")
+print(holidays_df)
+
+# =========================
+# 8. PROPHET MODEL
+# =========================
+model = Prophet(
+    holidays=holidays_df,
+    growth="linear",
+    yearly_seasonality=True,
+    weekly_seasonality=True,
+    daily_seasonality=False,
+    seasonality_mode="additive",
+    changepoint_prior_scale=0.001,
+    seasonality_prior_scale=30.0
+)
+
+model.add_country_holidays(country_name="SK")
+model.fit(train_daily[["ds", "y"]])
+
+print("\n--- MODEL NAFITOVANY ---")
+
+# =========================
+# 9. FORECAST NA ROK 2024
+# =========================
+future_2024 = pd.DataFrame({
+    "ds": pd.date_range(start="2024-01-01", end="2024-12-31", freq="D")
+})
+
+forecast_2024 = model.predict(future_2024)
+
+# spatna transformacia z log skaly
+forecast_2024["prophet_forecast_daily"] = np.expm1(forecast_2024["yhat"])
+forecast_2024["prophet_forecast_daily"] = forecast_2024["prophet_forecast_daily"].clip(lower=0)
+
+print("\n--- DIAGNOSTIKA FORECASTU PO SPATNEJ TRANSFORMACII ---")
+print("Minimum denny forecast:", forecast_2024["prophet_forecast_daily"].min())
+print("Maximum denny forecast:", forecast_2024["prophet_forecast_daily"].max())
+
+forecast_2024["month"] = forecast_2024["ds"].dt.to_period("M").dt.to_timestamp()
+
+prophet_monthly = (
+    forecast_2024.groupby("month", as_index=False)["prophet_forecast_daily"]
+    .sum()
+    .rename(columns={"prophet_forecast_daily": "prophet_forecast"})
+    .sort_values("month")
+    .reset_index(drop=True)
+)
+
+print("\n--- PROPHET FORECAST 2024 NA MESACNEJ UROVNI ---")
+print(prophet_monthly)
+
+# =========================
+# 10. FINALNA TABULKA V ROVNAKEJ FORME AKO BENCHMARK
+# =========================
+prophet_comparison = actual_2024.merge(
+    prophet_monthly,
+    on="month",
+    how="left"
+).sort_values("month").reset_index(drop=True)
+
+print("\n--- FINALNA POROVNAVACIA TABULKA PRE PROPHET ---")
+print(prophet_comparison)
+
+if prophet_comparison.empty:
+    raise ValueError("Finalna Prophet tabulka je prazdna.")
+
+# =========================
+# 11. ULOZENIE VYSTUPU
+# =========================
+output_path = input_path.parent / "prophet_segment_B_comparison.csv"
+prophet_comparison.to_csv(output_path, index=False, encoding="utf-8-sig")
+
+print("\nSubor ulozeny do:")
+print(output_path)
+
+# =========================
+# 12. METRIKY PRE PROPHET
+# =========================
+def mae(actual, forecast):
+    actual = np.array(actual, dtype=float)
+    forecast = np.array(forecast, dtype=float)
+    return np.mean(np.abs(actual - forecast))
+
+def rmse(actual, forecast):
+    actual = np.array(actual, dtype=float)
+    forecast = np.array(forecast, dtype=float)
+    return np.sqrt(np.mean((actual - forecast) ** 2))
+
+def wape(actual, forecast):
+    actual = np.array(actual, dtype=float)
+    forecast = np.array(forecast, dtype=float)
+    if np.sum(actual) == 0:
+        return np.nan
+    return np.sum(np.abs(actual - forecast)) / np.sum(actual) * 100
+
+prophet_mae = mae(prophet_comparison["actual_sales"], prophet_comparison["prophet_forecast"])
+prophet_rmse = rmse(prophet_comparison["actual_sales"], prophet_comparison["prophet_forecast"])
+prophet_wape = wape(prophet_comparison["actual_sales"], prophet_comparison["prophet_forecast"])
+
+print("\n--- METRIKY PRE PROPHET ---")
+print("MAE:", round(prophet_mae, 2))
+print("RMSE:", round(prophet_rmse, 2))
+print("WAPE:", round(prophet_wape, 2))
+
+print("Hotovo")
+
+'''
+odfiltrovanie len training period 1.1.2022 - 31.12.2023
+import pandas as pd
+
+FILE_PATH = r"C:/Users/kajka/Documents/Diplomka/Dáta/Used data/dedoles_sk_2022_2024_order_lines_without_b2b_enriched.csv"
+OUTPUT_PATH = r"C:/Users/kajka/Documents/Diplomka/Dáta/Used data/training_period.csv"
+
+START_DATE = pd.Timestamp("2022-01-01")
+END_DATE = pd.Timestamp("2024-01-01")  # horná hranica exkluzívne
+CHUNK_SIZE = 500_000
+
+first_chunk = True
+total_rows = 0
+
+for chunk in pd.read_csv(
+    FILE_PATH,
+    chunksize=CHUNK_SIZE,
+    parse_dates=["transaction_date"]
+):
+    filtered_chunk = chunk[
+        (chunk["transaction_date"] >= START_DATE) &
+        (chunk["transaction_date"] < END_DATE)
+    ]
+
+    total_rows += len(filtered_chunk)
+
+    filtered_chunk.to_csv(
+        OUTPUT_PATH,
+        mode="w" if first_chunk else "a",
+        header=first_chunk,
+        index=False
+    )
+
+    first_chunk = False
+
+print(f"Hotovo. Uložených riadkov: {total_rows}")
+print(f"Výstupný súbor: {OUTPUT_PATH}")
+
+'''
+'''
+agregacia 1 riadok 1
+import pandas as pd
+
+FILE_PATH = r"C:/Users/kajka/Documents/Diplomka/Dáta/Used data/training_period.csv"
+OUTPUT_PATH = r"C:/Users/kajka/Documents/Diplomka/Dáta/Used data/training_period_design_revenue.csv"
+
+CHUNK_SIZE = 500_000
+
+aggregated_parts = []
+
+for chunk in pd.read_csv(
+    FILE_PATH,
+    chunksize=CHUNK_SIZE,
+    usecols=["design_id", "line_total"]
+):
+    chunk["line_total"] = pd.to_numeric(chunk["line_total"], errors="coerce").fillna(0)
+
+    agg_chunk = (
+        chunk.groupby("design_id", as_index=False)["line_total"]
+        .sum()
+    )
+
+    aggregated_parts.append(agg_chunk)
+
+final_agg = (
+    pd.concat(aggregated_parts, ignore_index=True)
+    .groupby("design_id", as_index=False)["line_total"]
+    .sum()
+    .rename(columns={"line_total": "total_revenue"})
+)
+
+final_agg.to_csv(OUTPUT_PATH, index=False)
+
+print(f"Hotovo. Počet design_id: {len(final_agg)}")
+print(f"Výstupný súbor: {OUTPUT_PATH}")
+'''
+'''
+check či agregacia sedi - nulovy diff
+import pandas as pd
+
+TRAIN_FILE_PATH = r"C:/Users/kajka/Documents/Diplomka/Dáta/Used data/training_period.csv"
+AGG_FILE_PATH = r"C:/Users/kajka/Documents/Diplomka/Dáta/Used data/training_period_design_revenue.csv"
+
+train_df = pd.read_csv(TRAIN_FILE_PATH, usecols=["line_total"])
+agg_df = pd.read_csv(AGG_FILE_PATH, usecols=["total_revenue"])
+
+train_df["line_total"] = pd.to_numeric(train_df["line_total"], errors="coerce").fillna(0)
+agg_df["total_revenue"] = pd.to_numeric(agg_df["total_revenue"], errors="coerce").fillna(0)
+
+total_train_sales = train_df["line_total"].sum()
+total_agg_sales = agg_df["total_revenue"].sum()
+
+print("Total sales in training data:", total_train_sales)
+print("Total sales in aggregated table:", total_agg_sales)
+print("Difference:", total_train_sales - total_agg_sales)
+'''
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
+file_path = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\abc_base.csv")
+output_path = file_path.parent / "abc_analyza.csv"
+
+abc_base = pd.read_csv(
+    file_path,
+    encoding="utf-8-sig"
+)
+
+abc_base["total_revenue"] = pd.to_numeric(
+    abc_base["total_revenue"]
+    .astype("string")
+    .str.replace("\xa0", "", regex=False)
+    .str.replace(" ", "", regex=False)
+    .str.replace(",", ".", regex=False),
+    errors="coerce"
+)
+
+abc_final = (
+    abc_base.groupby(["design_id"], as_index=False, sort=False)["total_revenue"]
+    .sum()
+    .rename(columns={"total_revenue": "sales_value"})
+    .sort_values(["sales_value", "design_id"], ascending=[False, True], kind="mergesort")
+    .reset_index(drop=True)
+)
+
+total_sales = abc_final["sales_value"].sum()
+
+abc_final["sales_share"] = abc_final["sales_value"] / total_sales
+abc_final["cumulative_share"] = abc_final["sales_share"].cumsum()
+abc_final["abc_class"] = np.where(
+    abc_final["cumulative_share"] <= 0.80,
+    "A",
+    np.where(abc_final["cumulative_share"] <= 0.95, "B", "C")
+)
+
+abc_final.to_csv(output_path, index=False, encoding="utf-8-sig")
+
+print(abc_final.tail(20))
+print("\nPočet designov:", len(abc_final))
+print("Total sales:", abc_final["sales_value"].sum())
+print(f"Súbor uložený do: {output_path}")
+print("hotofka")
+
+import pandas as pd
+
+file_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\daily_sales_series_2022_2024.csv"
+daily_df = pd.read_csv(file_path)
+
+print(daily_df.head())
+print(daily_df.columns.tolist())
+
+daily_df["transaction_date"] = pd.to_datetime(daily_df["transaction_date"])
+
+train_df = daily_df[
+    (daily_df["transaction_date"] >= "2022-01-01") &
+    (daily_df["transaction_date"] <= "2023-12-31")
+].copy()
+
+print(train_df.head())
+print(train_df.tail())
+print(train_df.shape)
+
+from prophet import Prophet
+
+prophet_train = train_df.rename(columns={
+    "transaction_date": "ds",
+    "daily_sales": "y"
+})
+
+print(prophet_train.head())
+print(prophet_train.columns.tolist())
+
+print("hotovo")
+
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.stats import kruskal
+
+# Load data
+file_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\daily_sales_series_2022_2024.csv"
+df = pd.read_csv(file_path)
+
+# Column names
+date_col = "transaction_date"
+revenue_col = "daily_sales"
+
+# Prepare date column
+df[date_col] = pd.to_datetime(df[date_col])
+
+# Filter analysed period: 2022–2024
+eda_df = df[
+    (df[date_col] >= "2022-01-01") &
+    (df[date_col] <= "2024-12-31")
+].copy()
+
+# Create time variables
+eda_df["year"] = eda_df[date_col].dt.year
+eda_df["month"] = eda_df[date_col].dt.month
+eda_df["month_name"] = eda_df[date_col].dt.month_name()
+
+# Normalize daily sales within each year
+eda_df["year_avg_revenue"] = eda_df.groupby("year")[revenue_col].transform("mean")
+eda_df["revenue_index"] = eda_df[revenue_col] / eda_df["year_avg_revenue"] * 100
+
+# Monthly descriptive summary
+monthly_summary = (
+    eda_df.groupby("month")
+    .agg(
+        month_name=("month_name", "first"),
+        n_days=(revenue_col, "count"),
+        avg_revenue=(revenue_col, "mean"),
+        median_revenue=(revenue_col, "median"),
+        avg_revenue_index=("revenue_index", "mean"),
+        median_revenue_index=("revenue_index", "median")
+    )
+    .reset_index()
+)
+
+monthly_summary[
+    ["avg_revenue", "median_revenue", "avg_revenue_index", "median_revenue_index"]
+] = monthly_summary[
+    ["avg_revenue", "median_revenue", "avg_revenue_index", "median_revenue_index"]
+].round(2)
+
+# Kruskal-Wallis test for monthly differences
+monthly_groups = [
+    group["revenue_index"].dropna().values
+    for _, group in eda_df.groupby("month")
+]
+
+kw_stat, kw_p = kruskal(*monthly_groups)
+
+# Test result table
+monthly_test_result = pd.DataFrame({
+    "Test area": ["Monthly differences"],
+    "Period": ["2022-01-01 to 2024-12-31"],
+    "Variable": ["Year-normalized daily revenue"],
+    "Grouping variable": ["Calendar month"],
+    "Test used": ["Kruskal-Wallis"],
+    "Test statistic": [round(kw_stat, 3)],
+    "p-value": ["< 0.001" if kw_p < 0.001 else round(kw_p, 4)],
+    "Conclusion": [
+        "Statistically significant" if kw_p < 0.05 else "Not statistically significant"
+    ]
+})
+
+# Print results
+print("\nMonthly revenue summary:")
+print(monthly_summary.to_string(index=False))
+
+print("\nKruskal-Wallis test result:")
+print(monthly_test_result.to_string(index=False))
+
+print("\nInterpretation:")
+if kw_p < 0.05:
+    print(
+        f"The Kruskal-Wallis test indicated statistically significant differences "
+        f"in year-normalized daily revenue across calendar months "
+        f"(H = {kw_stat:.3f}, p < 0.001)."
+    )
+else:
+    print(
+        f"The Kruskal-Wallis test did not indicate statistically significant differences "
+        f"in year-normalized daily revenue across calendar months "
+        f"(H = {kw_stat:.3f}, p = {kw_p:.4f})."
+    )
+
+# Month labels for boxplot
+month_labels = {
+    1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr",
+    5: "May", 6: "Jun", 7: "Jul", 8: "Aug",
+    9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
+}
+
+month_order = list(range(1, 13))
+x_labels = [month_labels[m] for m in month_order]
+
+data_to_plot = [
+    eda_df.loc[eda_df["month"] == m, "revenue_index"].dropna()
+    for m in month_order
+]
+
+# Create boxplot
+plt.figure(figsize=(12, 6))
+
+plt.boxplot(
+    data_to_plot,
+    labels=x_labels,
+    boxprops=dict(linewidth=0.8),
+    whiskerprops=dict(linewidth=0.8),
+    capprops=dict(linewidth=0.8),
+    medianprops=dict(linewidth=0.9),
+    flierprops=dict(marker="o", markersize=3, markeredgewidth=0.6)
+)
+
+# Axis labels
+plt.xlabel("Month")
+plt.ylabel("Year-normalized daily revenue (annual average = 100)")
+
+# Dashed gridlines
+plt.grid(axis="y", linestyle="--", alpha=0.4)
+
+# Remove outer border
+ax = plt.gca()
+for spine in ax.spines.values():
+    spine.set_visible(False)
+
+# Layout and show plot
+plt.tight_layout()
+plt.show()
+
+print("\nHotovo.")
+
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.stats import kruskal
+
+# Load data
+file_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\daily_sales_series_2022_2024.csv"
+df = pd.read_csv(file_path)
+
+# Column names
+date_col = "transaction_date"
+revenue_col = "daily_sales"
+
+# Prepare date column
+df[date_col] = pd.to_datetime(df[date_col])
+
+# Filter analysed period: 2022–2024
+eda_df = df[
+    (df[date_col] >= "2022-01-01") &
+    (df[date_col] <= "2024-12-31")
+].copy()
+
+# Create time variables
+eda_df["year"] = eda_df[date_col].dt.year
+eda_df["weekday"] = eda_df[date_col].dt.dayofweek
+eda_df["weekday_name"] = eda_df[date_col].dt.day_name()
+
+# Normalize daily sales within each year
+eda_df["year_avg_revenue"] = eda_df.groupby("year")[revenue_col].transform("mean")
+eda_df["revenue_index"] = eda_df[revenue_col] / eda_df["year_avg_revenue"] * 100
+
+# Weekday labels and order
+weekday_labels = {
+    0: "Monday",
+    1: "Tuesday",
+    2: "Wednesday",
+    3: "Thursday",
+    4: "Friday",
+    5: "Saturday",
+    6: "Sunday"
+}
+
+weekday_order = list(range(7))
+
+# Weekly descriptive summary
+weekly_summary = (
+    eda_df.groupby("weekday")
+    .agg(
+        weekday_name=("weekday_name", "first"),
+        n_days=(revenue_col, "count"),
+        avg_revenue=(revenue_col, "mean"),
+        median_revenue=(revenue_col, "median"),
+        avg_revenue_index=("revenue_index", "mean"),
+        median_revenue_index=("revenue_index", "median")
+    )
+    .reset_index()
+)
+
+# Ensure correct weekday order
+weekly_summary = weekly_summary.sort_values("weekday")
+
+weekly_summary[
+    ["avg_revenue", "median_revenue", "avg_revenue_index", "median_revenue_index"]
+] = weekly_summary[
+    ["avg_revenue", "median_revenue", "avg_revenue_index", "median_revenue_index"]
+].round(2)
+
+# Kruskal-Wallis test for weekly differences
+weekly_groups = [
+    eda_df.loc[eda_df["weekday"] == day, "revenue_index"].dropna().values
+    for day in weekday_order
+]
+
+kw_stat, kw_p = kruskal(*weekly_groups)
+
+# Test result table
+weekly_test_result = pd.DataFrame({
+    "Test area": ["Weekly differences"],
+    "Period": ["2022-01-01 to 2024-12-31"],
+    "Variable": ["Year-normalized daily revenue"],
+    "Grouping variable": ["Day of week"],
+    "Test used": ["Kruskal-Wallis"],
+    "Test statistic": [round(kw_stat, 3)],
+    "p-value": ["< 0.001" if kw_p < 0.001 else round(kw_p, 4)],
+    "Conclusion": [
+        "Statistically significant" if kw_p < 0.05 else "Not statistically significant"
+    ]
+})
+
+# Print results
+print("\nWeekly revenue summary:")
+print(weekly_summary.to_string(index=False))
+
+print("\nKruskal-Wallis test result:")
+print(weekly_test_result.to_string(index=False))
+
+print("\nInterpretation:")
+if kw_p < 0.05:
+    print(
+        f"The Kruskal-Wallis test indicated statistically significant differences "
+        f"in year-normalized daily revenue across days of the week "
+        f"(H = {kw_stat:.3f}, p < 0.001)."
+    )
+else:
+    print(
+        f"The Kruskal-Wallis test did not indicate statistically significant differences "
+        f"in year-normalized daily revenue across days of the week "
+        f"(H = {kw_stat:.3f}, p = {kw_p:.4f})."
+    )
+
+# Labels for boxplot
+x_labels = [weekday_labels[d] for d in weekday_order]
+
+data_to_plot = [
+    eda_df.loc[eda_df["weekday"] == d, "revenue_index"].dropna()
+    for d in weekday_order
+]
+
+# Create boxplot
+plt.figure(figsize=(10, 6))
+
+plt.boxplot(
+    data_to_plot,
+    tick_labels=x_labels,
+    boxprops=dict(linewidth=0.8),
+    whiskerprops=dict(linewidth=0.8),
+    capprops=dict(linewidth=0.8),
+    medianprops=dict(linewidth=0.9),
+    flierprops=dict(marker="o", markersize=3, markeredgewidth=0.6)
+)
+
+# Axis labels
+plt.xlabel("Day of Week")
+plt.ylabel("Year-normalized daily revenue (annual average = 100)")
+
+# Rotate x-axis labels slightly
+plt.xticks(rotation=30)
+
+# Dashed gridlines
+plt.grid(axis="y", linestyle="--", alpha=0.4)
+
+# Remove outer border
+ax = plt.gca()
+for spine in ax.spines.values():
+    spine.set_visible(False)
+
+# Layout and show plot
+plt.tight_layout()
+plt.show()
+
+print("\nHotovo.")
+
+import pandas as pd
+from scipy.stats import mannwhitneyu
+
+# ============================================================
+# EVENT PERIODS VS NON-EVENT PERIODS
+# Mann-Whitney U test
+# Period: 2022-01-01 to 2024-12-31
+# Variable: daily_sales
+# ============================================================
+
+print("SCRIPT STARTED")
+
+# Load data
+file_path = r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\daily_sales_series_2022_2024.csv"
+df = pd.read_csv(file_path)
+
+# Column names
+date_col = "transaction_date"
+revenue_col = "daily_sales"
+
+# Prepare columns
+df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+df[revenue_col] = pd.to_numeric(df[revenue_col], errors="coerce")
+
+# Remove missing values
+df = df.dropna(subset=[date_col, revenue_col]).copy()
+
+# Filter analysed period
+df = df[
+    (df[date_col] >= "2022-01-01") &
+    (df[date_col] <= "2024-12-31")
+].copy()
+
+# Create date variables
+df["year"] = df[date_col].dt.year
+df["month"] = df[date_col].dt.month
+df["day"] = df[date_col].dt.day
+
+# Normalize daily sales within each year
+# This reduces the influence of the overall decline in revenue across years
+df["year_avg_revenue"] = df.groupby("year")[revenue_col].transform("mean")
+df["revenue_index"] = df[revenue_col] / df["year_avg_revenue"] * 100
+
+# ============================================================
+# DEFINE EVENT PERIODS
+# ============================================================
+
+# Pre-Christmas: 1 December to 23 December
+df["pre_christmas"] = (
+    (df["month"] == 12) &
+    (df["day"] >= 1) &
+    (df["day"] <= 23)
+)
+
+# Black Friday to Cyber Monday windows
+black_friday_dates = pd.to_datetime([
+    "2022-11-25", "2022-11-26", "2022-11-27", "2022-11-28",
+    "2023-11-24", "2023-11-25", "2023-11-26", "2023-11-27",
+    "2024-11-29", "2024-11-30", "2024-12-01", "2024-12-02"
+])
+
+df["black_friday"] = df[date_col].isin(black_friday_dates)
+
+# Post-Christmas windows
+# 2022 window: 25 Dec 2022 to 7 Jan 2023
+# 2023 window: 25 Dec 2023 to 7 Jan 2024
+# 2024 window is incomplete because Jan 2025 is not in the dataset, so it is excluded from statistical testing
+post_christmas_2022 = (
+    (df[date_col] >= "2022-12-25") &
+    (df[date_col] <= "2023-01-07")
+)
+
+post_christmas_2023 = (
+    (df[date_col] >= "2023-12-25") &
+    (df[date_col] <= "2024-01-07")
+)
+
+df["post_christmas"] = post_christmas_2022 | post_christmas_2023
+
+# Assign event year for post-Christmas
+# The event year is the year of December, not January
+df["post_christmas_event_year"] = None
+df.loc[post_christmas_2022, "post_christmas_event_year"] = 2022
+df.loc[post_christmas_2023, "post_christmas_event_year"] = 2023
+
+# Mark all defined event days
+df["any_event"] = (
+    df["pre_christmas"] |
+    df["black_friday"] |
+    df["post_christmas"]
+)
+
+# ============================================================
+# FUNCTION FOR EVENT VS NON-EVENT TESTS
+# ============================================================
+
+def mann_whitney_event_test(data, event_name, event_col, event_year, year_col="year"):
+    """
+    Compares event days with non-event days in the corresponding year.
+    Uses revenue_index to reduce the influence of different annual revenue levels.
+    """
+
+    # Event days
+    if event_name == "Post-Christmas":
+        event_data = data[
+            (data[event_col] == True) &
+            (data["post_christmas_event_year"] == event_year)
+        ].copy()
+
+        # Reference period: non-event days in the December year of the event
+        reference_data = data[
+            (data["year"] == event_year) &
+            (data["any_event"] == False)
+        ].copy()
+
+    else:
+        event_data = data[
+            (data[event_col] == True) &
+            (data[year_col] == event_year)
+        ].copy()
+
+        # Reference period: non-event days in the same year
+        reference_data = data[
+            (data[year_col] == event_year) &
+            (data["any_event"] == False)
+        ].copy()
+
+    event_values = event_data["revenue_index"].dropna()
+    non_event_values = reference_data["revenue_index"].dropna()
+
+    # Skip test if there are not enough observations
+    if len(event_values) < 2 or len(non_event_values) < 2:
+        return {
+            "Event": event_name,
+            "Year": event_year,
+            "Event days": len(event_values),
+            "Non-event days": len(non_event_values),
+            "Event avg revenue": None,
+            "Non-event avg revenue": None,
+            "Difference (%)": None,
+            "U statistic": None,
+            "p-value": None,
+            "Conclusion": "Not enough observations"
+        }
+
+    # Mann-Whitney U test
+    u_stat, p_value = mannwhitneyu(
+        event_values,
+        non_event_values,
+        alternative="two-sided"
+    )
+
+    # Averages in original revenue
+    event_avg_revenue = event_data[revenue_col].mean()
+    non_event_avg_revenue = reference_data[revenue_col].mean()
+
+    difference_pct = ((event_avg_revenue / non_event_avg_revenue) - 1) * 100
+
+    if p_value < 0.001:
+        p_display = "< 0.001"
+    else:
+        p_display = round(p_value, 4)
+
+    conclusion = (
+        "Statistically significant"
+        if p_value < 0.05
+        else "Not statistically significant"
+    )
+
+    return {
+        "Event": event_name,
+        "Year": event_year,
+        "Event days": len(event_values),
+        "Non-event days": len(non_event_values),
+        "Event avg revenue": round(event_avg_revenue, 2),
+        "Non-event avg revenue": round(non_event_avg_revenue, 2),
+        "Difference (%)": round(difference_pct, 2),
+        "U statistic": round(u_stat, 3),
+        "p-value": p_display,
+        "Conclusion": conclusion
+    }
+
+# ============================================================
+# RUN TESTS
+# ============================================================
+
+results = []
+
+# Pre-Christmas: 2022, 2023, 2024
+for year in [2022, 2023, 2024]:
+    results.append(
+        mann_whitney_event_test(
+            data=df,
+            event_name="Pre-Christmas",
+            event_col="pre_christmas",
+            event_year=year
+        )
+    )
+
+# Post-Christmas: only fully observed windows 2022 and 2023
+# 2024 is excluded because Jan 2025 is not available
+for year in [2022, 2023]:
+    results.append(
+        mann_whitney_event_test(
+            data=df,
+            event_name="Post-Christmas",
+            event_col="post_christmas",
+            event_year=year
+        )
+    )
+
+# Black Friday: 2022, 2023, 2024
+for year in [2022, 2023, 2024]:
+    results.append(
+        mann_whitney_event_test(
+            data=df,
+            event_name="Black Friday",
+            event_col="black_friday",
+            event_year=year
+        )
+    )
+
+event_test_results = pd.DataFrame(results)
+
+# ============================================================
+# PRINT RESULTS
+# ============================================================
+
+print("\nEvent vs non-event Mann-Whitney U test results:")
+print(event_test_results.to_string(index=False))
+
+print("\nNotes:")
+print("1. The test variable is year-normalized daily revenue.")
+print("2. Event averages and non-event averages are reported in original revenue values.")
+print("3. Non-event days exclude all defined event periods.")
+print("4. The post-Christmas 2024 window is excluded because January 2025 is not available.")
+print("5. Black Friday 2024 includes 1-2 December 2024, which overlaps with the beginning of the pre-Christmas period.")
+
+print("\nHotovo.")
+
+from pathlib import Path
+import pandas as pd
+import numpy as np
+from prophet import Prophet
+
+# =========================
+# 1. CESTA K PRIPRAVENYM DATAM
+# =========================
+input_path = Path(r"C:\Users\kajka\Documents\Diplomka\Dáta\Used data\b_segment_forecast_input.csv")
+
+# =========================
+# 2. NACITANIE DAT
+# =========================
+df = pd.read_csv(input_path, encoding="utf-8-sig")
+
+print("\n--- NACITANIE PRIPRAVENYCH DAT ---")
+print("Pocet riadkov:", len(df))
+print("Stlpce:", df.columns.tolist())
+
+required_cols = {"transaction_date", "line_total"}
+missing_cols = required_cols - set(df.columns)
+
+if missing_cols:
+    raise ValueError(f"V subore chybaju stlpce: {missing_cols}")
+
+# =========================
+# 3. PARSOVANIE
+# =========================
+df["transaction_date"] = pd.to_datetime(
+    df["transaction_date"].astype(str).str.strip(),
+    format="%Y-%m-%d",
+    errors="coerce"
+)
+
+df["line_total"] = pd.to_numeric(df["line_total"], errors="coerce")
+
+print("\n--- KONTROLA PO PARSOVANI ---")
+print("Neparsovane datumy:", df["transaction_date"].isna().sum())
+print("Neparsovane line_total:", df["line_total"].isna().sum())
+
+df = df.dropna(subset=["transaction_date", "line_total"]).copy()
+
+if df.empty:
+    raise ValueError("Po parsovani nezostali ziadne riadky.")
+
+# =========================
+# 4. TRAIN A ACTUAL 2024
+# =========================
+train_raw = df[df["transaction_date"] < "2024-01-01"].copy()
+actual_2024_raw = df[
+    (df["transaction_date"] >= "2024-01-01") &
+    (df["transaction_date"] <= "2024-12-31")
+].copy()
+
+print("\n--- ROZDELENIE DAT ---")
+print("Train riadky (2022-2023):", len(train_raw))
+print("Actual 2024 riadky:", len(actual_2024_raw))
+
+if train_raw.empty:
+    raise ValueError("Train dataset je prazdny.")
+
+if actual_2024_raw.empty:
+    raise ValueError("Actual 2024 dataset je prazdny.")
+
+# =========================
+# 5. DENNA CASOVA RADA PRE PROPHET
+# =========================
+train_daily = (
+    train_raw.assign(ds=train_raw["transaction_date"].dt.normalize())
+    .groupby("ds", as_index=False)["line_total"]
+    .sum()
+    .rename(columns={"line_total": "y"})
+)
+
+full_train_dates = pd.DataFrame({
+    "ds": pd.date_range(start=train_daily["ds"].min(), end="2023-12-31", freq="D")
+})
+
+train_daily = full_train_dates.merge(train_daily, on="ds", how="left")
+train_daily["y"] = train_daily["y"].fillna(0)
+
+print("\n--- DENNA CASOVA RADA PRE PROPHET PRED LOG TRANSFORMACIOU ---")
+print("Pocet riadkov:", len(train_daily))
+print("Obdobie:", train_daily["ds"].min(), "->", train_daily["ds"].max())
+print(train_daily.head())
+
+# log transformacia
+train_daily["y"] = np.log1p(train_daily["y"])
+
+print("\n--- DENNA CASOVA RADA PRE PROPHET PO LOG TRANSFORMACII ---")
+print(train_daily.head())
+
+# =========================
+# 6. ACTUAL 2024 NA MESACNEJ UROVNI
+# =========================
+actual_2024_raw["month"] = actual_2024_raw["transaction_date"].dt.to_period("M").dt.to_timestamp()
+
+actual_2024 = (
+    actual_2024_raw.groupby("month", as_index=False)["line_total"]
+    .sum()
+    .rename(columns={"line_total": "actual_sales"})
+    .sort_values("month")
+    .reset_index(drop=True)
+)
+
+print("\n--- ACTUAL 2024 ---")
+print(actual_2024)
+
+# =========================
+# 7. CUSTOM HOLIDAYS
+# =========================
+def fourth_friday_of_november(year):
+    nov_days = pd.date_range(start=f"{year}-11-01", end=f"{year}-11-30", freq="D")
+    fridays = nov_days[nov_days.weekday == 4]
+    return fridays[3]
+
+years = [2022, 2023, 2024]
+
+pre_christmas = pd.DataFrame({
+    "holiday": "pre_christmas",
+    "ds": pd.to_datetime([f"{y}-12-23" for y in years]),
+    "lower_window": -22,
+    "upper_window": 0
+})
+
+black_friday = pd.DataFrame({
+    "holiday": "black_friday",
+    "ds": pd.to_datetime([fourth_friday_of_november(y) for y in years]),
+    "lower_window": 0,
+    "upper_window": 3
+})
+
+holidays_df = pd.concat([pre_christmas, black_friday], ignore_index=True)
+
+print("\n--- CUSTOM HOLIDAYS ---")
+print(holidays_df)
+
+# =========================
+# 8. PROPHET MODEL
+# =========================
+model = Prophet(
+    holidays=holidays_df,
+    growth="linear",
+    yearly_seasonality=True,
+    weekly_seasonality=True,
+    daily_seasonality=False,
+    seasonality_mode="additive",
+    changepoint_prior_scale=0.001,
+    seasonality_prior_scale=30.0
+)
+
+model.add_country_holidays(country_name="SK")
+model.fit(train_daily[["ds", "y"]])
+
+print("\n--- MODEL NAFITOVANY ---")
+
+# =========================
+# 9. FORECAST NA ROK 2024
+# =========================
+future_2024 = pd.DataFrame({
+    "ds": pd.date_range(start="2024-01-01", end="2024-12-31", freq="D")
+})
+
+forecast_2024 = model.predict(future_2024)
+
+# spatna transformacia z log skaly
+forecast_2024["prophet_forecast_daily"] = np.expm1(forecast_2024["yhat"])
+forecast_2024["prophet_forecast_daily"] = forecast_2024["prophet_forecast_daily"].clip(lower=0)
+
+print("\n--- DIAGNOSTIKA FORECASTU PO SPATNEJ TRANSFORMACII ---")
+print("Minimum denny forecast:", forecast_2024["prophet_forecast_daily"].min())
+print("Maximum denny forecast:", forecast_2024["prophet_forecast_daily"].max())
+
+forecast_2024["month"] = forecast_2024["ds"].dt.to_period("M").dt.to_timestamp()
+
+prophet_monthly = (
+    forecast_2024.groupby("month", as_index=False)["prophet_forecast_daily"]
+    .sum()
+    .rename(columns={"prophet_forecast_daily": "prophet_forecast"})
+    .sort_values("month")
+    .reset_index(drop=True)
+)
+
+print("\n--- PROPHET FORECAST 2024 NA MESACNEJ UROVNI ---")
+print(prophet_monthly)
+
+# =========================
+# 10. FINALNA TABULKA V ROVNAKEJ FORME AKO BENCHMARK
+# =========================
+prophet_comparison = actual_2024.merge(
+    prophet_monthly,
+    on="month",
+    how="left"
+).sort_values("month").reset_index(drop=True)
+
+print("\n--- FINALNA POROVNAVACIA TABULKA PRE PROPHET ---")
+print(prophet_comparison)
+
+if prophet_comparison.empty:
+    raise ValueError("Finalna Prophet tabulka je prazdna.")
+
+# =========================
+# 11. ULOZENIE VYSTUPU
+# =========================
+output_path = input_path.parent / "prophet_segment_B_comparison.csv"
+prophet_comparison.to_csv(output_path, index=False, encoding="utf-8-sig")
+
+print("\nSubor ulozeny do:")
+print(output_path)
+
+# =========================
+# 12. METRIKY PRE PROPHET
+# =========================
+def mae(actual, forecast):
+    actual = np.array(actual, dtype=float)
+    forecast = np.array(forecast, dtype=float)
+    return np.mean(np.abs(actual - forecast))
+
+def rmse(actual, forecast):
+    actual = np.array(actual, dtype=float)
+    forecast = np.array(forecast, dtype=float)
+    return np.sqrt(np.mean((actual - forecast) ** 2))
+
+def wape(actual, forecast):
+    actual = np.array(actual, dtype=float)
+    forecast = np.array(forecast, dtype=float)
+    if np.sum(actual) == 0:
+        return np.nan
+    return np.sum(np.abs(actual - forecast)) / np.sum(actual) * 100
+
+prophet_mae = mae(prophet_comparison["actual_sales"], prophet_comparison["prophet_forecast"])
+prophet_rmse = rmse(prophet_comparison["actual_sales"], prophet_comparison["prophet_forecast"])
+prophet_wape = wape(prophet_comparison["actual_sales"], prophet_comparison["prophet_forecast"])
+
+print("\n--- METRIKY PRE PROPHET ---")
+print("MAE:", round(prophet_mae, 2))
+print("RMSE:", round(prophet_rmse, 2))
+print("WAPE:", round(prophet_wape, 2))
+
+output_path = input_path.parent / "prophet_segment_B_comparison.csv"
+
+print("Hotovo")
